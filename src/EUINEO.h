@@ -67,6 +67,24 @@ struct RectStyle {
 
 RectStyle Lerp(const RectStyle& a, const RectStyle& b, float t);
 
+struct RectFrame {
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+RectFrame Lerp(const RectFrame& a, const RectFrame& b, float t);
+
+struct PanelState {
+    RectFrame frame;
+    RectStyle style;
+    float borderWidth = 0.0f;
+    Color borderColor = Color(0, 0, 0, 0);
+};
+
+PanelState Lerp(const PanelState& a, const PanelState& b, float t);
+
 struct RectBounds {
     float x = 0.0f;
     float y = 0.0f;
@@ -229,6 +247,8 @@ using ColorAnimation = PropertyAnimation<Color>;
 using GradientAnimation = PropertyAnimation<RectGradient>;
 using TransformAnimation = PropertyAnimation<RectTransform>;
 using RectStyleAnimation = PropertyAnimation<RectStyle>;
+using RectFrameAnimation = PropertyAnimation<RectFrame>;
+using PanelStateAnimation = PropertyAnimation<PanelState>;
 
 struct Theme {
     Color background;
@@ -285,6 +305,7 @@ public:
     static void AddDirtyRect(float x, float y, float w, float h);
     static void InvalidateAll();
     static void InvalidateBackdrop();
+    static void CaptureBackdrop();
 
     static RectBounds MeasureRectBounds(float x, float y, float w, float h, const RectStyle& style);
     static void DrawRect(float x, float y, float w, float h, const RectStyle& style);
@@ -295,7 +316,9 @@ public:
 
     static bool LoadFont(const std::string& fontPath, float fontSize = 24.0f,
                          unsigned int startChar = 32, unsigned int endChar = 128);
-    static void DrawTextStr(const std::string& text, float x, float y, const Color& color, float scale = 1.0f);
+    static void DrawTextStr(const std::string& text, float x, float y, const Color& color, float scale = 1.0f,
+                            float rotationDegrees = 0.0f, float pivotX = 0.0f, float pivotY = 0.0f,
+                            bool useCustomPivot = false);
     static float MeasureTextWidth(const std::string& text, float scale = 1.0f);
     static void RequestRepaint(float duration = 0.0f);
     static bool ShouldRepaint();

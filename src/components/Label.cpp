@@ -17,7 +17,7 @@ void Label::Draw() {
     GetAbsoluteBounds(absX, absY);
     Color drawColor = useThemeColor ? CurrentTheme->text : color;
     float textScale = fontSize / 24.0f; // 基于 24.0f 的基础字号进行缩放
-    Renderer::DrawTextStr(text, absX, absY, drawColor, textScale);
+    Renderer::DrawTextStr(text, absX, absY, drawColor, textScale, rotationDegrees);
 }
 
 } // namespace EUINEO

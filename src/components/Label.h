@@ -9,6 +9,7 @@ public:
     std::string text;
     Color color;
     bool useThemeColor = true;
+    float rotationDegrees = 0.0f;
     
     Label() = default;
     Label(std::string t, float x, float y);

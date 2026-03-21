@@ -136,6 +136,26 @@ RectStyle Lerp(const RectStyle& a, const RectStyle& b, float t) {
     return out;
 }
 
+RectFrame Lerp(const RectFrame& a, const RectFrame& b, float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    RectFrame out;
+    out.x = Lerp(a.x, b.x, t);
+    out.y = Lerp(a.y, b.y, t);
+    out.width = Lerp(a.width, b.width, t);
+    out.height = Lerp(a.height, b.height, t);
+    return out;
+}
+
+PanelState Lerp(const PanelState& a, const PanelState& b, float t) {
+    t = std::clamp(t, 0.0f, 1.0f);
+    PanelState out;
+    out.frame = Lerp(a.frame, b.frame, t);
+    out.style = Lerp(a.style, b.style, t);
+    out.borderWidth = Lerp(a.borderWidth, b.borderWidth, t);
+    out.borderColor = Lerp(a.borderColor, b.borderColor, t);
+    return out;
+}
+
 Theme LightTheme = {
     Color(0.95f, 0.95f, 0.97f),
     Color(0.2f, 0.5f, 0.9f),
@@ -191,6 +211,14 @@ static GLint CachedBlurProjLoc = -1;
 static GLint CachedBlurPosLoc = -1;
 static GLint CachedBlurSizeLoc = -1;
 static GLint CachedBlurTextureLoc = -1;
+static GLint CachedBlurBoxPosLoc = -1;
+static GLint CachedBlurBoxSizeLoc = -1;
+static GLint CachedBlurTranslateLoc = -1;
+static GLint CachedBlurTransformInvLoc = -1;
+static GLint CachedBlurRoundingLoc = -1;
+static GLint CachedBlurShadowBlurLoc = -1;
+static GLint CachedBlurShadowOffsetLoc = -1;
+static GLint CachedBlurShadowAlphaLoc = -1;
 static GLuint CachedBlurTexture = 0;
 static int CachedBlurTextureW = 0;
 static int CachedBlurTextureH = 0;
@@ -215,34 +243,20 @@ static float ActiveRedrawX1 = 0.0f;
 static float ActiveRedrawY1 = 0.0f;
 static float ActiveRedrawX2 = 0.0f;
 static float ActiveRedrawY2 = 0.0f;
+static int BgTextureW = 0;
+static int BgTextureH = 0;
+static bool BackdropDirty = true;
 
 static const char* vShaderStr = R"(
 #version 330 core
 layout(location = 0) in vec2 aPos;
 out vec2 vPos;
-out vec2 vLocal;
-out vec2 vUV;
 uniform mat4 projection;
 uniform vec2 uPos;
 uniform vec2 uSize;
-uniform vec2 uTranslate;
-uniform vec2 uScale;
-uniform float uRotation;
 void main() {
-    vec2 center = uPos + uSize * 0.5 + uTranslate;
-    vec2 local = (aPos - vec2(0.5)) * uSize;
-    vec2 scaled = local * uScale;
-    float rotation = radians(uRotation);
-    float c = cos(rotation);
-    float s = sin(rotation);
-    vec2 rotated = vec2(
-        c * scaled.x - s * scaled.y,
-        s * scaled.x + c * scaled.y
-    );
-    vec2 pos = center + rotated;
+    vec2 pos = uPos + aPos * uSize;
     vPos = pos;
-    vLocal = local;
-    vUV = aPos;
     gl_Position = projection * vec4(pos, 0.0, 1.0);
 }
 )";
@@ -250,16 +264,10 @@ void main() {
 static const char* fShaderStr = R"(
 #version 330 core
 in vec2 vPos;
-in vec2 vLocal;
-in vec2 vUV;
 uniform vec4 uColor;
-uniform vec2 uPos;
-uniform vec2 uSize;
 uniform vec2 uBoxPos;
 uniform vec2 uBoxSize;
 uniform vec2 uTranslate;
-uniform vec2 uScale;
-uniform float uRotation;
 uniform mat2 uTransformInv;
 uniform float uRounding;
 uniform float uBlurAmount;
@@ -300,7 +308,7 @@ vec4 fillColorAt(vec2 uv) {
 
 void main() {
     vec2 center = uBoxPos + uBoxSize * 0.5 + uTranslate;
-    vec2 p = vLocal;
+    vec2 p = uTransformInv * (vPos - center);
     float d = roundedBoxSDF(p, uBoxSize * 0.5, uRounding);
 
     float shadowAlpha = 0.0;
@@ -313,27 +321,36 @@ void main() {
     }
 
     float alpha = 1.0 - smoothstep(-1.0, 1.0, d);
-    vec4 fillColor = fillColorAt(vUV);
+    vec2 safeBoxSize = max(uBoxSize, vec2(0.001));
+    vec2 fillUV = clamp((p / safeBoxSize) + vec2(0.5), 0.0, 1.0);
+    vec4 fillColor = fillColorAt(fillUV);
     vec4 finalColor = vec4(0.0);
 
     if (uBlurAmount > 0.0 && alpha > 0.0) {
         vec2 uv = gl_FragCoord.xy / iResolution.xy;
         float bluramount = uBlurAmount;
-        vec3 blurredImage = vec3(0.0);
+        vec2 pixelStep = 1.0 / iResolution.xy;
+        float blurRadiusPx = bluramount * min(iResolution.x, iResolution.y);
+        vec3 blurredImage = draw(uv);
         const float repeats = 60.0;
+        const float tau = 6.28318530718;
         for (float i = 0.0; i < repeats; i += 1.0) {
-            vec2 q = vec2(cos(degrees((i / repeats) * 360.0)), sin(degrees((i / repeats) * 360.0))) *
-                     (rand(vec2(i, uv.x + uv.y)) + bluramount);
-            vec2 uv2 = uv + (q * bluramount);
-            blurredImage += draw(uv2) / 2.0;
-            q = vec2(cos(degrees((i / repeats) * 360.0)), sin(degrees((i / repeats) * 360.0))) *
-                (rand(vec2(i + 2.0, uv.x + uv.y + 24.0)) + bluramount);
-            uv2 = uv + (q * bluramount);
-            blurredImage += draw(uv2) / 2.0;
+            float angle = (i / repeats) * tau;
+            vec2 dir = vec2(cos(angle), sin(angle));
+
+            float radiusA = blurRadiusPx * (0.35 + 0.65 * rand(vec2(i, uv.x + uv.y)));
+            vec2 uv2 = clamp(uv + dir * radiusA * pixelStep, pixelStep * 0.5, vec2(1.0) - pixelStep * 0.5);
+            blurredImage += draw(uv2);
+
+            float angleB = angle + (0.5 * tau / repeats);
+            vec2 dirB = vec2(cos(angleB), sin(angleB));
+            float radiusB = blurRadiusPx * (0.20 + 0.80 * rand(vec2(i + 2.0, uv.x + uv.y + 24.0)));
+            uv2 = clamp(uv + dirB * radiusB * pixelStep, pixelStep * 0.5, vec2(1.0) - pixelStep * 0.5);
+            blurredImage += draw(uv2);
         }
-        blurredImage /= repeats;
+        blurredImage /= (repeats * 2.0 + 1.0);
         vec3 mixColor = mix(blurredImage, fillColor.rgb, fillColor.a);
-        finalColor = vec4(mixColor, fillColor.a * alpha);
+        finalColor = vec4(mixColor, alpha);
     } else {
         finalColor = vec4(fillColor.rgb, fillColor.a * alpha);
     }
@@ -353,12 +370,14 @@ static const char* cachedBlurVShaderStr = R"(
 #version 330 core
 layout(location = 0) in vec2 aPos;
 out vec2 vUV;
+out vec2 vPos;
 uniform mat4 projection;
 uniform vec2 uPos;
 uniform vec2 uSize;
 void main() {
     vec2 pos = (aPos * uSize) + uPos;
     vUV = vec2(aPos.x, 1.0 - aPos.y);
+    vPos = pos;
     gl_Position = projection * vec4(pos, 0.0, 1.0);
 }
 )";
@@ -366,9 +385,40 @@ void main() {
 static const char* cachedBlurFShaderStr = R"(
 #version 330 core
 in vec2 vUV;
+in vec2 vPos;
 uniform sampler2D uTexture;
+uniform vec2 uBoxPos;
+uniform vec2 uBoxSize;
+uniform vec2 uTranslate;
+uniform mat2 uTransformInv;
+uniform float uRounding;
+uniform float uShadowBlur;
+uniform vec2 uShadowOffset;
+uniform float uShadowAlpha;
 out vec4 FragColor;
+
+float roundedBoxSDF(vec2 centerPosition, vec2 size, float radius) {
+    return length(max(abs(centerPosition) - size + radius, 0.0)) - radius;
+}
+
 void main() {
+    vec2 center = uBoxPos + uBoxSize * 0.5 + uTranslate;
+    vec2 p = uTransformInv * (vPos - center);
+    float d = roundedBoxSDF(p, uBoxSize * 0.5, uRounding);
+    float alpha = 1.0 - smoothstep(-1.0, 1.0, d);
+
+    float shadowAlpha = 0.0;
+    if (uShadowBlur > 0.0 && uShadowAlpha > 0.0) {
+        vec2 shadowDelta = (vPos - center) - uShadowOffset;
+        vec2 sp = uTransformInv * shadowDelta;
+        float sd = roundedBoxSDF(sp, uBoxSize * 0.5, uRounding);
+        shadowAlpha = (1.0 - smoothstep(-uShadowBlur, uShadowBlur, sd)) * uShadowAlpha;
+    }
+
+    if (alpha <= 0.0 && shadowAlpha <= 0.0) {
+        discard;
+    }
+
     FragColor = texture(uTexture, vUV);
 }
 )";
@@ -417,6 +467,11 @@ static bool RectGradientEq(const RectGradient& a, const RectGradient& b, float e
            ColorEq(a.topRight, b.topRight, epsilon) &&
            ColorEq(a.bottomLeft, b.bottomLeft, epsilon) &&
            ColorEq(a.bottomRight, b.bottomRight, epsilon);
+}
+
+static bool CanReuseBlurCache(const RectStyle& style) {
+    (void)style;
+    return false;
 }
 
 static void BuildTransformInverse(const RectTransform& transform, float out[4]) {
@@ -533,6 +588,17 @@ static void EnsureCachedBlurTexture(int width, int height) {
     }
 }
 
+static void EnsureBackdropTexture(int width, int height) {
+    width = std::max(width, 1);
+    height = std::max(height, 1);
+    glBindTexture(GL_TEXTURE_2D, BgTexture);
+    if (BgTextureW != width || BgTextureH != height) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+        BgTextureW = width;
+        BgTextureH = height;
+    }
+}
+
 static bool CachedBlurMatches(float quadX, float quadY, float quadW, float quadH, const RectStyle& style) {
     return BlurCacheValid &&
         CachedBackdropVersion == BackdropVersion &&
@@ -632,6 +698,14 @@ void Renderer::Init() {
     CachedBlurPosLoc = glGetUniformLocation(CachedBlurProgram, "uPos");
     CachedBlurSizeLoc = glGetUniformLocation(CachedBlurProgram, "uSize");
     CachedBlurTextureLoc = glGetUniformLocation(CachedBlurProgram, "uTexture");
+    CachedBlurBoxPosLoc = glGetUniformLocation(CachedBlurProgram, "uBoxPos");
+    CachedBlurBoxSizeLoc = glGetUniformLocation(CachedBlurProgram, "uBoxSize");
+    CachedBlurTranslateLoc = glGetUniformLocation(CachedBlurProgram, "uTranslate");
+    CachedBlurTransformInvLoc = glGetUniformLocation(CachedBlurProgram, "uTransformInv");
+    CachedBlurRoundingLoc = glGetUniformLocation(CachedBlurProgram, "uRounding");
+    CachedBlurShadowBlurLoc = glGetUniformLocation(CachedBlurProgram, "uShadowBlur");
+    CachedBlurShadowOffsetLoc = glGetUniformLocation(CachedBlurProgram, "uShadowOffset");
+    CachedBlurShadowAlphaLoc = glGetUniformLocation(CachedBlurProgram, "uShadowAlpha");
 
     glGenTextures(1, &BgTexture);
     glBindTexture(GL_TEXTURE_2D, BgTexture);
@@ -748,14 +822,25 @@ void Renderer::DrawRect(float x, float y, float w, float h, const RectStyle& sty
         return;
     }
 
-    if (style.blurAmount > 0.0f && CachedBlurMatches(bounds.x, bounds.y, bounds.w, bounds.h, style)) {
+    const bool canReuseBlurCache = CanReuseBlurCache(style);
+    if (canReuseBlurCache && CachedBlurMatches(bounds.x, bounds.y, bounds.w, bounds.h, style)) {
         if (CurrentActiveProgram != CachedBlurProgram) {
             glUseProgram(CachedBlurProgram);
             CurrentActiveProgram = CachedBlurProgram;
         }
+        float transformInv[4] = {};
+        BuildTransformInverse(style.transform, transformInv);
         glUniform2f(CachedBlurPosLoc, CachedBlurX, CachedBlurY);
         glUniform2f(CachedBlurSizeLoc, CachedBlurW, CachedBlurH);
         glUniform1i(CachedBlurTextureLoc, 0);
+        glUniform2f(CachedBlurBoxPosLoc, x, y);
+        glUniform2f(CachedBlurBoxSizeLoc, w, h);
+        glUniform2f(CachedBlurTranslateLoc, style.transform.translateX, style.transform.translateY);
+        glUniformMatrix2fv(CachedBlurTransformInvLoc, 1, GL_FALSE, transformInv);
+        glUniform1f(CachedBlurRoundingLoc, style.rounding);
+        glUniform1f(CachedBlurShadowBlurLoc, style.shadowBlur);
+        glUniform2f(CachedBlurShadowOffsetLoc, style.shadowOffsetX, style.shadowOffsetY);
+        glUniform1f(CachedBlurShadowAlphaLoc, style.shadowColor.a);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, CachedBlurTexture);
         glDisable(GL_BLEND);
@@ -774,8 +859,8 @@ void Renderer::DrawRect(float x, float y, float w, float h, const RectStyle& sty
     float transformInv[4] = {};
     BuildTransformInverse(style.transform, transformInv);
 
-    glUniform2f(PosLoc, x, y);
-    glUniform2f(SizeLoc, w, h);
+    glUniform2f(PosLoc, bounds.x, bounds.y);
+    glUniform2f(SizeLoc, bounds.w, bounds.h);
     glUniform2f(BoxPosLoc, x, y);
     glUniform2f(BoxSizeLoc, w, h);
     glUniform2f(TranslateLoc, style.transform.translateX, style.transform.translateY);
@@ -787,7 +872,8 @@ void Renderer::DrawRect(float x, float y, float w, float h, const RectStyle& sty
     glUniform1f(BlurAmountLoc, style.blurAmount);
     glUniform1f(ShadowBlurLoc, style.shadowBlur);
     glUniform2f(ShadowOffsetLoc, style.shadowOffsetX, style.shadowOffsetY);
-    glUniform4f(ShadowColorLoc, style.shadowColor.r, style.shadowColor.g, style.shadowColor.b, style.shadowColor.a);
+    glUniform4f(ShadowColorLoc, style.shadowColor.r, style.shadowColor.g,
+                style.shadowColor.b, style.shadowColor.a);
     glUniform1i(GradientEnabledLoc, style.gradient.enabled ? 1 : 0);
     glUniform4f(GradientTopLeftLoc, style.gradient.topLeft.r, style.gradient.topLeft.g,
                 style.gradient.topLeft.b, style.gradient.topLeft.a);
@@ -800,21 +886,7 @@ void Renderer::DrawRect(float x, float y, float w, float h, const RectStyle& sty
     glUniform1f(TimeLoc, (float)glfwGetTime());
     glUniform2f(ResolutionLoc, State.screenW, State.screenH);
 
-    static int lastBlurFrame = -1;
     if (style.blurAmount > 0.0f) {
-        glBindTexture(GL_TEXTURE_2D, BgTexture);
-        static int texW = 0;
-        static int texH = 0;
-        if (texW != (int)State.screenW || texH != (int)State.screenH) {
-            texW = (int)State.screenW;
-            texH = (int)State.screenH;
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, texW, texH, 0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
-            lastBlurFrame = -1;
-        }
-        if (lastBlurFrame != State.frameCount) {
-            glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, texW, texH);
-            lastBlurFrame = State.frameCount;
-        }
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, BgTexture);
         glUniform1i(Channel0Loc, 0);
@@ -826,7 +898,7 @@ void Renderer::DrawRect(float x, float y, float w, float h, const RectStyle& sty
     glBindVertexArray(VAO);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    if (style.blurAmount > 0.0f) {
+    if (canReuseBlurCache) {
         int copyX = std::clamp((int)std::floor(bounds.x), 0, (int)State.screenW);
         int copyYTop = std::clamp((int)std::floor(bounds.y), 0, (int)State.screenH);
         int copyRight = std::clamp((int)std::ceil(bounds.x + bounds.w), 0, (int)State.screenW);
@@ -932,14 +1004,69 @@ bool Renderer::LoadFont(const std::string& fontPath, float fontSize, unsigned in
     return true;
 }
 
-void Renderer::DrawTextStr(const std::string& text, float x, float y, const Color& color, float scale) {
+void Renderer::DrawTextStr(const std::string& text, float x, float y, const Color& color, float scale,
+                           float rotationDegrees, float pivotX, float pivotY, bool useCustomPivot) {
     if (text.empty()) {
         return;
     }
 
     float textWidth = std::max(MeasureTextWidth(text, scale), 24.0f * scale);
     float textHeight = 32.0f * scale;
-    if (!RectIntersectsActiveRedraw(x, y - textHeight, textWidth, textHeight * 1.35f)) {
+    const float boundsX = x;
+    const float boundsY = y - textHeight;
+    const float boundsW = textWidth;
+    const float boundsH = textHeight * 1.35f;
+
+    float finalPivotX = pivotX;
+    float finalPivotY = pivotY;
+    if (!useCustomPivot) {
+        finalPivotX = boundsX + boundsW * 0.5f;
+        finalPivotY = boundsY + boundsH * 0.5f;
+    }
+
+    float redrawX = boundsX;
+    float redrawY = boundsY;
+    float redrawW = boundsW;
+    float redrawH = boundsH;
+    if (std::abs(rotationDegrees) > 0.001f) {
+        const float radians = rotationDegrees * 0.017453292519943295f;
+        const float c = std::cos(radians);
+        const float s = std::sin(radians);
+        const float corners[4][2] = {
+            {boundsX, boundsY},
+            {boundsX + boundsW, boundsY},
+            {boundsX, boundsY + boundsH},
+            {boundsX + boundsW, boundsY + boundsH},
+        };
+
+        float minX = 0.0f;
+        float minY = 0.0f;
+        float maxX = 0.0f;
+        float maxY = 0.0f;
+        for (int cornerIndex = 0; cornerIndex < 4; ++cornerIndex) {
+            const float dx = corners[cornerIndex][0] - finalPivotX;
+            const float dy = corners[cornerIndex][1] - finalPivotY;
+            const float rotatedX = finalPivotX + dx * c - dy * s;
+            const float rotatedY = finalPivotY + dx * s + dy * c;
+
+            if (cornerIndex == 0) {
+                minX = maxX = rotatedX;
+                minY = maxY = rotatedY;
+            } else {
+                minX = std::min(minX, rotatedX);
+                minY = std::min(minY, rotatedY);
+                maxX = std::max(maxX, rotatedX);
+                maxY = std::max(maxY, rotatedY);
+            }
+        }
+
+        redrawX = minX;
+        redrawY = minY;
+        redrawW = maxX - minX;
+        redrawH = maxY - minY;
+    }
+
+    if (!RectIntersectsActiveRedraw(redrawX, redrawY, redrawW, redrawH)) {
         return;
     }
 
@@ -985,6 +1112,18 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
             { xpos + w, ypos,       1.0f, 0.0f },
             { xpos + w, ypos + h,   1.0f, 1.0f }
         };
+
+        if (std::abs(rotationDegrees) > 0.001f) {
+            const float radians = rotationDegrees * 0.017453292519943295f;
+            const float c = std::cos(radians);
+            const float s = std::sin(radians);
+            for (int vertexIndex = 0; vertexIndex < 6; ++vertexIndex) {
+                const float dx = vertices[vertexIndex][0] - finalPivotX;
+                const float dy = vertices[vertexIndex][1] - finalPivotY;
+                vertices[vertexIndex][0] = finalPivotX + dx * c - dy * s;
+                vertices[vertexIndex][1] = finalPivotY + dx * s + dy * c;
+            }
+        }
 
         glBindTexture(GL_TEXTURE_2D, charData.TextureID);
         glBindBuffer(GL_ARRAY_BUFFER, TextVBO);
@@ -1033,8 +1172,22 @@ void Renderer::InvalidateAll() {
 void Renderer::InvalidateBackdrop() {
     ++BackdropVersion;
     BlurCacheValid = false;
+    BackdropDirty = true;
     State.needsRepaint = true;
     State.fullScreenDirty = true;
+}
+
+void Renderer::CaptureBackdrop() {
+    if (!BackdropDirty) {
+        return;
+    }
+
+    const int texW = std::max(1, (int)State.screenW);
+    const int texH = std::max(1, (int)State.screenH);
+    EnsureBackdropTexture(texW, texH);
+    glBindTexture(GL_TEXTURE_2D, BgTexture);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, texW, texH);
+    BackdropDirty = false;
 }
 
 void Renderer::AddDirtyRect(float x, float y, float w, float h) {

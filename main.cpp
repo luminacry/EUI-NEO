@@ -15,12 +15,18 @@ struct FrameCache {
     GLuint vao = 0;
     GLuint vbo = 0;
     GLint textureLoc = -1;
+    GLint screenSizeLoc = -1;
+    GLint posLoc = -1;
+    GLint sizeLoc = -1;
+    GLint uvPosLoc = -1;
+    GLint uvSizeLoc = -1;
     bool hasCache = false;
     int width = 0;
     int height = 0;
 };
 
 static FrameCache gFrameCache;
+static constexpr bool kReuseSwapBackBufferForPartialRedraw = false;
 
 static GLuint CompileFrameCacheShader(GLenum type, const char* source) {
     GLuint shader = glCreateShader(type);
@@ -35,9 +41,19 @@ static void InitFrameCacheRenderer() {
         layout(location = 0) in vec2 aPos;
         layout(location = 1) in vec2 aUV;
         out vec2 vUV;
+        uniform vec2 uScreenSize;
+        uniform vec2 uPos;
+        uniform vec2 uSize;
+        uniform vec2 uUVPos;
+        uniform vec2 uUVSize;
         void main() {
-            vUV = aUV;
-            gl_Position = vec4(aPos, 0.0, 1.0);
+            vec2 pixelPos = uPos + aPos * uSize;
+            vec2 ndc = vec2(
+                (pixelPos.x / uScreenSize.x) * 2.0 - 1.0,
+                (pixelPos.y / uScreenSize.y) * 2.0 - 1.0
+            );
+            vUV = uUVPos + aUV * uUVSize;
+            gl_Position = vec4(ndc, 0.0, 1.0);
         }
     )";
 
@@ -60,14 +76,19 @@ static void InitFrameCacheRenderer() {
     glDeleteShader(vertex);
     glDeleteShader(fragment);
     gFrameCache.textureLoc = glGetUniformLocation(gFrameCache.program, "uTexture");
+    gFrameCache.screenSizeLoc = glGetUniformLocation(gFrameCache.program, "uScreenSize");
+    gFrameCache.posLoc = glGetUniformLocation(gFrameCache.program, "uPos");
+    gFrameCache.sizeLoc = glGetUniformLocation(gFrameCache.program, "uSize");
+    gFrameCache.uvPosLoc = glGetUniformLocation(gFrameCache.program, "uUVPos");
+    gFrameCache.uvSizeLoc = glGetUniformLocation(gFrameCache.program, "uUVSize");
 
     const float quad[] = {
-        -1.0f, -1.0f, 0.0f, 0.0f,
-         1.0f, -1.0f, 1.0f, 0.0f,
-         1.0f,  1.0f, 1.0f, 1.0f,
-        -1.0f, -1.0f, 0.0f, 0.0f,
-         1.0f,  1.0f, 1.0f, 1.0f,
-        -1.0f,  1.0f, 0.0f, 1.0f,
+        0.0f, 0.0f, 0.0f, 0.0f,
+        1.0f, 0.0f, 1.0f, 0.0f,
+        1.0f, 1.0f, 1.0f, 1.0f,
+        0.0f, 0.0f, 0.0f, 0.0f,
+        1.0f, 1.0f, 1.0f, 1.0f,
+        0.0f, 1.0f, 0.0f, 1.0f,
     };
 
     glGenVertexArrays(1, &gFrameCache.vao);
@@ -127,10 +148,25 @@ static void CopyRegionToFrameCache(int x, int y, int width, int height) {
     gFrameCache.hasCache = true;
 }
 
-static void DrawFrameCache(int width, int height) {
+struct GLDirtyRect {
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+    float redrawX1 = 0.0f;
+    float redrawY1 = 0.0f;
+    float redrawX2 = 0.0f;
+    float redrawY2 = 0.0f;
+};
+
+static bool BeginFrameCacheDraw(int width, int height) {
     if (!gFrameCache.hasCache || !gFrameCache.texture) {
-        return;
+        return false;
     }
+    if (width <= 0 || height <= 0) {
+        return false;
+    }
+
     glViewport(0, 0, width, height);
     glDisable(GL_DEPTH_TEST);
     glDisable(GL_BLEND);
@@ -138,26 +174,64 @@ static void DrawFrameCache(int width, int height) {
     glDisable(GL_SCISSOR_TEST);
     glUseProgram(gFrameCache.program);
     glUniform1i(gFrameCache.textureLoc, 0);
+    glUniform2f(gFrameCache.screenSizeLoc, (float)width, (float)height);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, gFrameCache.texture);
     glBindVertexArray(gFrameCache.vao);
+    return true;
+}
+
+static void DrawFrameCacheRegion(int width, int height, int x, int y, int regionW, int regionH) {
+    if (regionW <= 0 || regionH <= 0 || width <= 0 || height <= 0) {
+        return;
+    }
+
+    float uvX = (float)x / (float)width;
+    float uvY = (float)y / (float)height;
+    float uvW = (float)regionW / (float)width;
+    float uvH = (float)regionH / (float)height;
+
+    glUniform2f(gFrameCache.posLoc, (float)x, (float)y);
+    glUniform2f(gFrameCache.sizeLoc, (float)regionW, (float)regionH);
+    glUniform2f(gFrameCache.uvPosLoc, uvX, uvY);
+    glUniform2f(gFrameCache.uvSizeLoc, uvW, uvH);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 
-struct GLDirtyRect {
-    int x = 0;
-    int y = 0;
-    int w = 0;
-    int h = 0;
-};
+static void DrawFrameCacheOutsideDirty(int width, int height, const GLDirtyRect& dirty) {
+    if (!BeginFrameCacheDraw(width, height)) {
+        return;
+    }
+
+    DrawFrameCacheRegion(width, height, 0, 0, width, dirty.y);
+
+    int topY = dirty.y + dirty.h;
+    DrawFrameCacheRegion(width, height, 0, topY, width, height - topY);
+
+    DrawFrameCacheRegion(width, height, 0, dirty.y, dirty.x, dirty.h);
+
+    int rightX = dirty.x + dirty.w;
+    DrawFrameCacheRegion(width, height, rightX, dirty.y, width - rightX, dirty.h);
+}
 
 static GLDirtyRect ToGLDirtyRect(float x1, float y1, float x2, float y2, int framebufferW, int framebufferH) {
-    int x = std::clamp((int)std::floor(x1), 0, framebufferW);
-    int yTop = std::clamp((int)std::floor(y1), 0, framebufferH);
-    int w = std::clamp((int)std::ceil(x2 - x1), 0, framebufferW - x);
-    int h = std::clamp((int)std::ceil(y2 - y1), 0, framebufferH - yTop);
-    int y = std::clamp(framebufferH - (yTop + h), 0, framebufferH);
-    return GLDirtyRect{x, y, w, h};
+    int xLeft = std::clamp((int)std::floor(x1) - 1, 0, framebufferW);
+    int yTop = std::clamp((int)std::floor(y1) - 1, 0, framebufferH);
+    int xRight = std::clamp((int)std::ceil(x2) + 1, xLeft, framebufferW);
+    int yBottom = std::clamp((int)std::ceil(y2) + 1, yTop, framebufferH);
+    int w = xRight - xLeft;
+    int h = yBottom - yTop;
+    int y = std::clamp(framebufferH - yBottom, 0, framebufferH);
+    return GLDirtyRect{
+        xLeft,
+        y,
+        w,
+        h,
+        (float)xLeft,
+        (float)yTop,
+        (float)xRight,
+        (float)yBottom
+    };
 }
 
 int main() {
@@ -187,6 +261,12 @@ int main() {
 
     gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
     InitFrameCacheRenderer();
+    int initialFbW = 0;
+    int initialFbH = 0;
+    glfwGetFramebufferSize(window, &initialFbW, &initialFbH);
+    glViewport(0, 0, initialFbW, initialFbH);
+    EUINEO::State.screenW = (float)initialFbW;
+    EUINEO::State.screenH = (float)initialFbH;
 
     glfwSetCursorPosCallback(window, [](GLFWwindow*, double x, double y) {
         EUINEO::State.mouseX = (float)x;
@@ -256,8 +336,9 @@ int main() {
     EUINEO::Renderer::Init();
 
     bool fontLoaded = false;
-    if (EUINEO::Renderer::LoadFont("font/Medicinal Compound.otf", 24.0f, 32, 128) ||
-        EUINEO::Renderer::LoadFont("../src/font/Medicinal Compound.otf", 24.0f, 32, 128)) {
+    if (EUINEO::Renderer::LoadFont("src/font/Mountain and Nature.ttf", 24.0f, 32, 128) ||
+        EUINEO::Renderer::LoadFont("../src/font/Mountain and Nature.ttf", 24.0f, 32, 128) ||
+        EUINEO::Renderer::LoadFont("../../src/font/Mountain and Nature.ttf", 24.0f, 32, 128)) {
         fontLoaded = true;
     }
 
@@ -267,11 +348,15 @@ int main() {
 
     if (!fontLoaded) {
         if (EUINEO::Renderer::LoadFont("C:/Windows/Fonts/msyh.ttc", 24.0f, 32, 128)) {
-            EUINEO::Renderer::LoadFont("C:/Windows/Fonts/msyh.ttc", 24.0f, 0x4E00, 0x9FA5);
-        } else if (!EUINEO::Renderer::LoadFont("C:/Windows/Fonts/arial.ttf", 24.0f)) {
+            fontLoaded = true;
+        } else if (EUINEO::Renderer::LoadFont("C:/Windows/Fonts/arial.ttf", 24.0f)) {
+            fontLoaded = true;
+        } else {
             printf("Failed to load fallback font!\n");
         }
     }
+
+    EUINEO::Renderer::LoadFont("C:/Windows/Fonts/msyh.ttc", 24.0f, 0x4E00, 0xA000);
 
     EUINEO::MainPage mainPage;
     double lastTime = glfwGetTime();
@@ -288,15 +373,20 @@ int main() {
 
         int w = 0;
         int h = 0;
-        glfwGetWindowSize(window, &w, &h);
+        glfwGetFramebufferSize(window, &w, &h);
         EUINEO::State.screenW = (float)w;
         EUINEO::State.screenH = (float)h;
 
         double mx = 0.0;
         double my = 0.0;
         glfwGetCursorPos(window, &mx, &my);
-        EUINEO::State.mouseX = (float)mx;
-        EUINEO::State.mouseY = (float)my;
+        int winW = 0;
+        int winH = 0;
+        glfwGetWindowSize(window, &winW, &winH);
+        float mouseScaleX = (winW > 0) ? ((float)w / (float)winW) : 1.0f;
+        float mouseScaleY = (winH > 0) ? ((float)h / (float)winH) : 1.0f;
+        EUINEO::State.mouseX = (float)mx * mouseScaleX;
+        EUINEO::State.mouseY = (float)my * mouseScaleY;
 
         bool leftDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
         bool rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
@@ -332,25 +422,27 @@ int main() {
                     EUINEO::Renderer::BeginFrame();
                     mainPage.Draw();
                     CopyFullToFrameCache(w, h);
-                } else {
-                    GLDirtyRect dirty = ToGLDirtyRect(EUINEO::State.dirtyX1, EUINEO::State.dirtyY1, EUINEO::State.dirtyX2, EUINEO::State.dirtyY2, w, h);
-                    if (dirty.w <= 0 || dirty.h <= 0) {
-                        EUINEO::Renderer::SetFullRedraw();
-                        glDisable(GL_SCISSOR_TEST);
+                    } else {
+                        GLDirtyRect dirty = ToGLDirtyRect(EUINEO::State.dirtyX1, EUINEO::State.dirtyY1, EUINEO::State.dirtyX2, EUINEO::State.dirtyY2, w, h);
+                        if (dirty.w <= 0 || dirty.h <= 0) {
+                            EUINEO::Renderer::SetFullRedraw();
+                            glDisable(GL_SCISSOR_TEST);
                         glClearColor(bg.r, bg.g, bg.b, bg.a);
                         glClear(GL_COLOR_BUFFER_BIT);
                         EUINEO::Renderer::BeginFrame();
                         mainPage.Draw();
                         CopyFullToFrameCache(w, h);
-                    } else {
-                        EUINEO::Renderer::SetPartialRedraw(EUINEO::State.dirtyX1, EUINEO::State.dirtyY1,
-                                                           EUINEO::State.dirtyX2, EUINEO::State.dirtyY2);
-                        DrawFrameCache(w, h);
+                        } else {
+                        EUINEO::Renderer::SetPartialRedraw(dirty.redrawX1, dirty.redrawY1,
+                                                           dirty.redrawX2, dirty.redrawY2);
+                        if (!kReuseSwapBackBufferForPartialRedraw) {
+                            DrawFrameCacheOutsideDirty(w, h, dirty);
+                        }
                         glEnable(GL_SCISSOR_TEST);
-                        glScissor(dirty.x, dirty.y, dirty.w, dirty.h);
-                        glClearColor(bg.r, bg.g, bg.b, bg.a);
-                        glClear(GL_COLOR_BUFFER_BIT);
-                        EUINEO::Renderer::BeginFrame();
+                            glScissor(dirty.x, dirty.y, dirty.w, dirty.h);
+                            glClearColor(bg.r, bg.g, bg.b, bg.a);
+                            glClear(GL_COLOR_BUFFER_BIT);
+                            EUINEO::Renderer::BeginFrame();
                         mainPage.Draw();
                         glDisable(GL_SCISSOR_TEST);
                         CopyRegionToFrameCache(dirty.x, dirty.y, dirty.w, dirty.h);

@@ -213,14 +213,12 @@ Renderer::InvalidateBackdrop();
 GetAbsoluteBounds(float& outX, float& outY);
 IsHovered();
 MarkDirty(const RectStyle& style, float expand = 0.0f, float duration = 0.0f);
-MarkDirty(const RectStyle& fromStyle, const RectStyle& toStyle, float expand = 0.0f,
-          float duration = 0.0f);
 MarkDirty(float expand = 20.0f, float duration = 0.0f);
 ```
 
 ## DrawRect 的基础属性
 
-这一轮 `DrawRect` 已经补齐这些基础能力：
+ `DrawRect` 已经有这些基础能力：
 
 - 透明：`RectStyle.color.a`
 - 渐变：`RectStyle.gradient`
@@ -343,9 +341,8 @@ styleAnim.Queue(restStyle, 0.18f, EUINEO::Easing::EaseInOut);
 ### 在 Update 里推进动画
 
 ```cpp
-EUINEO::RectStyle previousStyle = currentStyle;
 if (styleAnim.Update(EUINEO::State.deltaTime)) {
-    MarkDirty(previousStyle, currentStyle, 8.0f);
+    MarkDirty(currentStyle, 8.0f);
 }
 ```
 
@@ -359,10 +356,9 @@ EUINEO::RectStyle currentStyle = card.GetStyle();
 EUINEO::RectStyleAnimation styleAnim;
 styleAnim.Bind(&currentStyle);
 
-EUINEO::RectStyle previousStyle = currentStyle;
 if (styleAnim.Update(EUINEO::State.deltaTime)) {
     card.SetStyle(currentStyle);
-    card.MarkDirty(previousStyle, currentStyle, 8.0f);
+    card.MarkDirty(8.0f);
 }
 ```
 
@@ -380,7 +376,6 @@ if (styleAnim.Update(EUINEO::State.deltaTime)) {
 - hover、focus、输入、滑条拖动，不要直接 `InvalidateAll()`。
 - 只有背景真的变了，才调用 `InvalidateBackdrop()`。
 - 如果组件使用了 `RectStyle.transform`、阴影或 blur，脏区要走 `MarkDirty(style, ...)` 或 `MeasureRectBounds(...)`。
-- 如果动画会改平移、旋转、缩放或阴影范围，脏区要覆盖上一帧和当前帧。
 - 文本缩放统一走 `fontSize / 24.0f` 这种比例，不要每个组件自己发明一套字体尺寸逻辑。
 
 ### 自定义组件模板
@@ -426,9 +421,8 @@ public:
                         hovered ? EUINEO::Easing::EaseOut : EUINEO::Easing::EaseInOut);
         }
 
-        EUINEO::RectStyle previousStyle = style;
         if (anim.Update(EUINEO::State.deltaTime)) {
-            MarkDirty(previousStyle, style, 8.0f);
+            MarkDirty(style, 8.0f);
         }
     }
 
