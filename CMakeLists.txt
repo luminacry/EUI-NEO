@@ -76,3 +76,10 @@ if(WIN32)
     $<TARGET_FILE_DIR:eui_neo>
 )
 endif()
+
+# 将字体文件夹拷贝到可执行文件同级目录，以便单独运行 exe 时能找到字体
+add_custom_command(TARGET eui_neo POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/font
+    $<TARGET_FILE_DIR:eui_neo>/font
+)

@@ -99,13 +99,17 @@ int main() {
     
     // 1. 加载主字体 (英文+数字等基础字符)
     bool fontLoaded = false;
-    if (EUINEO::Renderer::LoadFont("../src/font/Medicinal Compound.otf", 24.0f, 32, 128)) {
+    // 优先尝试从 exe 同级的 font 文件夹加载，如果失败再尝试从源码相对路径加载（方便开发调试）
+    if (EUINEO::Renderer::LoadFont("font/Medicinal Compound.otf", 24.0f, 32, 128) ||
+        EUINEO::Renderer::LoadFont("../src/font/Medicinal Compound.otf", 24.0f, 32, 128)) {
         fontLoaded = true;
     }
     
     // 2. 加载 Font Awesome 7 图标字体 (只加载常用的部分，避免占用过多内存)
     // 0xF000 到 0xF2FF 包含了数百个最核心的 Font Awesome 图标 (如设置、用户、搜索等)
-    EUINEO::Renderer::LoadFont("../src/font/Font Awesome 7 Free-Solid-900.otf", 24.0f, 0xF000, 0xF2FF);
+    if (!EUINEO::Renderer::LoadFont("font/Font Awesome 7 Free-Solid-900.otf", 24.0f, 0xF000, 0xF2FF)) {
+        EUINEO::Renderer::LoadFont("../src/font/Font Awesome 7 Free-Solid-900.otf", 24.0f, 0xF000, 0xF2FF);
+    }
     
     if (!fontLoaded) {
         if (EUINEO::Renderer::LoadFont("C:/Windows/Fonts/msyh.ttc", 24.0f, 32, 128)) { // 尝试微软雅黑

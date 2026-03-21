@@ -18,6 +18,37 @@ EUI-NEO 是一个极简、现代、高性能的 OpenGL 2D GUI 框架。该项目
 
 ---
 
+## 🚀 编译与发布 (Build & Deploy)
+
+本项目使用 **CMake** 进行构建。
+
+### 编译步骤
+```bash
+# 1. 生成构建系统
+cmake -B build -G Ninja
+
+# 2. 编译项目
+cmake --build build --config Release
+```
+
+### 如何打包与独立运行 EXE
+为了让编译出的 `.exe` 程序能够在任何电脑上独立运行而不丢失字体和图标，CMake 构建脚本已配置了**自动拷贝依赖**功能：
+1. 编译完成后，`glfw3.dll` 会自动拷贝到 exe 同级目录。
+2. `src/font` 文件夹也会自动被拷贝到 exe 同级目录下。
+
+**发布给他人时，请确保打包以下文件：**
+```text
+your_publish_folder/
+├── eui_neo.exe      (主程序)
+├── glfw3.dll        (GLFW动态库)
+└── font/            (必须包含，否则会丢失字体和图标)
+    ├── Medicinal Compound.otf
+    └── Font Awesome 7 Free-Solid-900.otf
+```
+*注：程序启动时会优先尝试加载同级 `font/` 目录下的字体文件。*
+
+---
+
 ## 🎨 使用自绘图元制作组件
 
 EUI-NEO 抛弃了传统的贴图 UI，而是通过纯 GPU Shader（片段着色器）来计算形状。这样不仅节省了大量纹理内存，还可以随时动态改变形状的大小和圆角。
