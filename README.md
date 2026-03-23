@@ -168,20 +168,6 @@ EUI_UI_COMPONENT(templateCard, TemplateCardNode)
 - `segmented`
 - `sidebar`
 
-## 当前渲染策略
-
-- 事件驱动重绘：`Renderer::RequestRepaint()` / `ShouldRepaint()`
-- Backdrop 层缓存：用于玻璃面板和 blur 背景
-- 节点级 cached surface：`UIContext::draw()` 对非 Backdrop 节点走 `DrawCachedSurface`
-- 文本宽度缓存：`Renderer::MeasureTextWidth()` 已做缓存
-
-这一套的关键点是：
-
-- 不做复杂遮挡推导
-- 不做脏区矩形拆分
-- 不做局部回放链路
-- 用“稳定节点 key + 精确缓存失效”来降低普通交互时的 CPU / GPU 占用
-
 ## 相关文档
 
 - `docs/ui_dsl_analysis.md`
