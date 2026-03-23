@@ -61,6 +61,11 @@ public:
         return StaticTypeName();
     }
 
+    bool wantsContinuousUpdate() const override {
+        return hoverAnim_ > 0.001f && hoverAnim_ < 0.999f ||
+               clickAnim_ > 0.001f && clickAnim_ < 0.999f;
+    }
+
     void update() override {
         const bool hovered = primitive_.enabled && PrimitiveContains(primitive_, State.mouseX, State.mouseY);
         const float speed = 15.0f * State.deltaTime;
@@ -158,7 +163,8 @@ protected:
 private:
     void requestRepaint(float expand = 6.0f, float duration = 0.0f) {
         (void)expand;
-        requestVisualRepaint(duration);
+        (void)duration;
+        requestVisualRepaint();
     }
 
     std::string text_;

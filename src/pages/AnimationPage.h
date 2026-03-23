@@ -2,6 +2,7 @@
 
 #include "../EUINEO.h"
 #include "../ui/UIContext.h"
+#include "../ui/ThemeTokens.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -37,28 +38,16 @@ public:
         return StaticTypeName();
     }
 
+    bool wantsContinuousUpdate() const override {
+        return hoverAnimation_.IsActive() || burstAnimation_.IsActive();
+    }
+
     void setSpecIndex(int value) {
         specIndex_ = value;
     }
 
     RectFrame paintBounds() const override {
-        RectFrame frame = PrimitiveFrame(primitive_);
-        frame.x -= 12.0f;
-        frame.y -= 14.0f;
-        frame.width += 24.0f;
-        frame.height += 24.0f;
-
-        if (primitive_.hasClipRect) {
-            const float x1 = std::max(frame.x, primitive_.clipRect.x);
-            const float y1 = std::max(frame.y, primitive_.clipRect.y);
-            const float x2 = std::min(frame.x + frame.width, primitive_.clipRect.x + primitive_.clipRect.width);
-            const float y2 = std::min(frame.y + frame.height, primitive_.clipRect.y + primitive_.clipRect.height);
-            frame.x = x1;
-            frame.y = y1;
-            frame.width = std::max(0.0f, x2 - x1);
-            frame.height = std::max(0.0f, y2 - y1);
-        }
-        return frame;
+        return expandPrimitivePaintBounds(12.0f, 14.0f, 12.0f, 10.0f);
     }
 
     void update() override {
@@ -267,24 +256,17 @@ public:
             return;
         }
 
-        const Layout layout = MakeLayout(bounds);
-
-        ui.label(idPrefix + ".title")
-            .text("Animation Page")
-            .position(bounds.x, bounds.y + 24.0f)
-            .fontSize(31.0f)
-            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.98f))
-            .build();
-
-        ui.label(idPrefix + ".subtitle")
-            .text("Hover cards to preview rect property tracks. Click for a queued burst.")
-            .position(bounds.x, bounds.y + 54.0f)
-            .fontSize(17.0f)
-            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.72f))
-            .build();
+        const PageHeaderLayout header = ComposePageHeader(
+            ui,
+            idPrefix,
+            bounds,
+            "Animation Page",
+            "Hover cards to preview rect property tracks. Click for a queued burst."
+        );
+        const Layout layout = MakeLayout(bounds, header.contentY);
 
         for (int index = 0; index < 4; ++index) {
-            const RectFrame frame = CardFrame(bounds, layout, index);
+            const RectFrame frame = CardFrame(bounds, layout, header.contentY, index);
             ui.node<AnimationCardNode>(idPrefix + ".card" + std::to_string(index))
                 .position(frame.x, frame.y)
                 .size(frame.width, frame.height)
@@ -294,8 +276,9 @@ public:
     }
 
 private:
-    static Layout MakeLayout(const RectFrame& bounds) {
+    static Layout MakeLayout(const RectFrame& bounds, float contentY) {
         Layout layout;
+        layout.topOffset = std::max(0.0f, contentY - bounds.y);
         layout.columns = bounds.width >= 520.0f ? 2 : 1;
         layout.cardWidth = layout.columns == 2 ? (bounds.width - layout.gap) * 0.5f : bounds.width;
 
@@ -306,12 +289,12 @@ private:
         return layout;
     }
 
-    static RectFrame CardFrame(const RectFrame& bounds, const Layout& layout, int index) {
+    static RectFrame CardFrame(const RectFrame& bounds, const Layout& layout, float contentY, int index) {
         RectFrame frame;
         const int col = index % layout.columns;
         const int row = index / layout.columns;
         frame.x = bounds.x + col * (layout.cardWidth + layout.gap);
-        frame.y = bounds.y + layout.topOffset + row * (layout.cardHeight + layout.gap);
+        frame.y = contentY + row * (layout.cardHeight + layout.gap);
         frame.width = layout.cardWidth;
         frame.height = layout.cardHeight;
         return frame;

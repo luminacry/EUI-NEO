@@ -32,6 +32,11 @@ public:
         return StaticTypeName();
     }
 
+    bool wantsContinuousUpdate() const override {
+        const float targetValue = std::clamp(value_, 0.0f, 1.0f);
+        return animatedValue_ < 0.0f || std::abs(animatedValue_ - targetValue) > 0.001f;
+    }
+
     void update() override {
         const float targetValue = std::clamp(value_, 0.0f, 1.0f);
         if (animatedValue_ < 0.0f) {
@@ -80,7 +85,8 @@ protected:
 private:
     void requestRepaint(float expand = 2.0f, float duration = 0.0f) {
         (void)expand;
-        requestVisualRepaint(duration);
+        (void)duration;
+        requestVisualRepaint();
     }
 
     float value_ = 0.0f;

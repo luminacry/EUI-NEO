@@ -24,6 +24,7 @@ public:
     void beginCompose(std::uint64_t composeStamp) {
         composeStamp_ = composeStamp;
         composeBuildHash_ = ComposeHashSeed();
+        recomposeRequested_ = false;
         resetDefaults();
     }
 
@@ -71,6 +72,14 @@ public:
         cacheDirty_ = false;
     }
 
+    bool consumeRecomposeRequest() {
+        if (!recomposeRequested_) {
+            return false;
+        }
+        recomposeRequested_ = false;
+        return true;
+    }
+
     void trackComposeMarker(const char* tag) {
         HashCString(composeBuildHash_, tag);
     }
@@ -86,21 +95,7 @@ public:
     }
 
     virtual RectFrame paintBounds() const {
-        const RectFrame frame = PrimitiveFrame(primitive_);
-        const RectStyle style = MakeStyle(primitive_);
-        const RectBounds bounds = Renderer::MeasureRectBounds(frame.x, frame.y, frame.width, frame.height, style);
-        RectFrame result{bounds.x, bounds.y, bounds.w, bounds.h};
-        if (primitive_.hasClipRect) {
-            const float x1 = std::max(result.x, primitive_.clipRect.x);
-            const float y1 = std::max(result.y, primitive_.clipRect.y);
-            const float x2 = std::min(result.x + result.width, primitive_.clipRect.x + primitive_.clipRect.width);
-            const float y2 = std::min(result.y + result.height, primitive_.clipRect.y + primitive_.clipRect.height);
-            result.x = x1;
-            result.y = y1;
-            result.width = std::max(0.0f, x2 - x1);
-            result.height = std::max(0.0f, y2 - y1);
-        }
-        return result;
+        return measurePrimitivePaintBounds();
     }
 
     virtual bool wantsContinuousUpdate() const {
@@ -114,10 +109,115 @@ public:
 protected:
     virtual void resetDefaults() = 0;
 
+    RectFrame clipPaintBounds(const RectFrame& bounds) const {
+        RectFrame result = bounds;
+        if (primitive_.hasClipRect) {
+            const float x1 = std::max(result.x, primitive_.clipRect.x);
+            const float y1 = std::max(result.y, primitive_.clipRect.y);
+            const float x2 = std::min(result.x + result.width, primitive_.clipRect.x + primitive_.clipRect.width);
+            const float y2 = std::min(result.y + result.height, primitive_.clipRect.y + primitive_.clipRect.height);
+            result.x = x1;
+            result.y = y1;
+            result.width = std::max(0.0f, x2 - x1);
+            result.height = std::max(0.0f, y2 - y1);
+        }
+        return result;
+    }
+
+    RectFrame measurePrimitivePaintBounds() const {
+        const RectFrame frame = PrimitiveFrame(primitive_);
+        const RectStyle style = MakeStyle(primitive_);
+        return measurePaintBounds(frame, style);
+    }
+
+    RectFrame measurePaintBounds(const RectFrame& frame, const RectStyle& style, bool clip = true) const {
+        const RectBounds bounds = Renderer::MeasureRectBounds(frame.x, frame.y, frame.width, frame.height, style);
+        RectFrame result{bounds.x, bounds.y, bounds.w, bounds.h};
+        return clip ? clipPaintBounds(result) : result;
+    }
+
+    RectFrame expandPaintBounds(const RectFrame& bounds, float left, float top, float right, float bottom) const {
+        return clipPaintBounds(RectFrame{
+            bounds.x - left,
+            bounds.y - top,
+            bounds.width + left + right,
+            bounds.height + top + bottom
+        });
+    }
+
+    RectFrame expandPrimitivePaintBounds(float left, float top, float right, float bottom) const {
+        return expandPaintBounds(PrimitiveFrame(primitive_), left, top, right, bottom);
+    }
+
+    RectFrame unionPaintBounds(const RectFrame& lhs, const RectFrame& rhs) const {
+        if (lhs.width <= 0.0f || lhs.height <= 0.0f) {
+            return rhs;
+        }
+        if (rhs.width <= 0.0f || rhs.height <= 0.0f) {
+            return lhs;
+        }
+
+        const float x1 = std::min(lhs.x, rhs.x);
+        const float y1 = std::min(lhs.y, rhs.y);
+        const float x2 = std::max(lhs.x + lhs.width, rhs.x + rhs.width);
+        const float y2 = std::max(lhs.y + lhs.height, rhs.y + rhs.height);
+        return RectFrame{x1, y1, x2 - x1, y2 - y1};
+    }
+
+    RectFrame stackedPaintBoundsBelow(const RectFrame& anchorBounds, float stackedHeight,
+                                      float overlap = 0.0f, bool clipStacked = true) const {
+        if (stackedHeight <= 0.0f) {
+            return anchorBounds;
+        }
+
+        RectFrame stackedBounds{
+            anchorBounds.x,
+            anchorBounds.y + anchorBounds.height - overlap,
+            anchorBounds.width,
+            stackedHeight + overlap
+        };
+        if (clipStacked) {
+            stackedBounds = clipPaintBounds(stackedBounds);
+        }
+        return unionPaintBounds(anchorBounds, stackedBounds);
+    }
+
+    bool containsPoint(float x, float y) const {
+        return PrimitiveContains(primitive_, x, y);
+    }
+
+    bool hovered() const {
+        return primitive_.enabled && containsPoint(State.mouseX, State.mouseY);
+    }
+
+    bool animateTowards(float& value, float target, float speed,
+                        float settleEpsilon = 0.01f, float compareEpsilon = 0.001f) const {
+        if (std::abs(value - target) <= compareEpsilon) {
+            return false;
+        }
+
+        const float previous = value;
+        value = Lerp(value, target, speed);
+        if (std::abs(value - target) < settleEpsilon) {
+            value = target;
+        }
+        return std::abs(previous - value) > 0.0001f;
+    }
+
+    void applyPopupPresentationDefaults(int zIndex = 220) {
+        primitive_.renderLayer = RenderLayer::Popup;
+        primitive_.clipToParent = false;
+        primitive_.zIndex = std::max(primitive_.zIndex, zIndex);
+    }
+
     void requestVisualRepaint(float duration = 0.0f) {
         cacheDirty_ = true;
-        const float sustainedDuration = duration > 0.0f ? duration : 0.12f;
-        Renderer::RequestRepaint(sustainedDuration);
+        Renderer::RequestRepaint(duration);
+    }
+
+    void requestComposeRebuild(float duration = 0.0f) {
+        recomposeRequested_ = true;
+        requestVisualRepaint(duration);
     }
 
     UIPrimitive primitive_;
@@ -271,6 +371,8 @@ private:
     static bool PrimitiveEq(const UIPrimitive& lhs, const UIPrimitive& rhs, float epsilon = ComposeEpsilon()) {
         return FloatEq(lhs.x, rhs.x, epsilon) &&
                FloatEq(lhs.y, rhs.y, epsilon) &&
+               FloatEq(lhs.contextOffsetX, rhs.contextOffsetX, epsilon) &&
+               FloatEq(lhs.contextOffsetY, rhs.contextOffsetY, epsilon) &&
                FloatEq(lhs.width, rhs.width, epsilon) &&
                FloatEq(lhs.height, rhs.height, epsilon) &&
                FloatEq(lhs.minWidth, rhs.minWidth, epsilon) &&
@@ -295,6 +397,7 @@ private:
                lhs.enabled == rhs.enabled &&
                lhs.renderLayer == rhs.renderLayer &&
                lhs.zIndex == rhs.zIndex &&
+               lhs.clipToParent == rhs.clipToParent &&
                lhs.hasClipRect == rhs.hasClipRect &&
                (!lhs.hasClipRect || ClipEq(lhs.clipRect, rhs.clipRect, epsilon));
     }
@@ -306,6 +409,7 @@ private:
     UIPrimitive composedPrimitive_;
     bool hasComposeSnapshot_ = false;
     bool cacheDirty_ = true;
+    bool recomposeRequested_ = false;
 };
 
 } // namespace EUINEO

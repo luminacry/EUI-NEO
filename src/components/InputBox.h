@@ -2,6 +2,7 @@
 
 #include "../EUINEO.h"
 #include "../ui/UIBuilder.h"
+#include "../ui/ThemeTokens.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cmath>
@@ -59,38 +60,30 @@ public:
     }
 
     bool wantsContinuousUpdate() const override {
-        return isFocused_;
+        return isFocused_ ||
+               (hoverAnim_ > 0.001f && hoverAnim_ < 0.999f) ||
+               (focusAnim_ > 0.001f && focusAnim_ < 0.999f);
     }
 
     void update() override {
         cursorPosition_ = std::min(cursorPosition_, static_cast<int>(text_.size()));
-        const bool hovered = primitive_.enabled && PrimitiveContains(primitive_, State.mouseX, State.mouseY);
+        const bool isHovered = hovered();
 
         if (!primitive_.enabled && isFocused_) {
             isFocused_ = false;
             requestRepaint(4.0f);
         }
 
-        const float targetHover = hovered ? 1.0f : 0.0f;
-        if (std::abs(hoverAnim_ - targetHover) > 0.001f) {
-            hoverAnim_ = Lerp(hoverAnim_, targetHover, State.deltaTime * 15.0f);
-            if (std::abs(hoverAnim_ - targetHover) < 0.01f) {
-                hoverAnim_ = targetHover;
-            }
+        if (animateTowards(hoverAnim_, isHovered ? 1.0f : 0.0f, State.deltaTime * 15.0f)) {
             requestRepaint(4.0f);
         }
 
-        const float targetFocus = isFocused_ ? 1.0f : 0.0f;
-        if (std::abs(focusAnim_ - targetFocus) > 0.001f) {
-            focusAnim_ = Lerp(focusAnim_, targetFocus, State.deltaTime * 15.0f);
-            if (std::abs(focusAnim_ - targetFocus) < 0.01f) {
-                focusAnim_ = targetFocus;
-            }
+        if (animateTowards(focusAnim_, isFocused_ ? 1.0f : 0.0f, State.deltaTime * 15.0f)) {
             requestRepaint(4.0f);
         }
 
         if (State.mouseClicked) {
-            const bool nextFocus = primitive_.enabled && hovered;
+            const bool nextFocus = primitive_.enabled && isHovered;
             if (isFocused_ != nextFocus) {
                 isFocused_ = nextFocus;
                 cursorBlinkTime_ = 0.0f;
@@ -153,23 +146,11 @@ public:
     void draw() override {
         PrimitiveClipScope clip(primitive_);
         const RectFrame frame = PrimitiveFrame(primitive_);
-
-        Color baseColor = Lerp(CurrentTheme->surface, CurrentTheme->surfaceActive, focusAnim_);
-        Color hoverColor = Lerp(CurrentTheme->surfaceHover, CurrentTheme->surfaceActive, focusAnim_);
-        const Color background = ApplyOpacity(Lerp(baseColor, hoverColor, hoverAnim_), primitive_.opacity);
-        Renderer::DrawRect(frame.x, frame.y, frame.width, frame.height, background, 6.0f);
-
-        if (focusAnim_ > 0.01f) {
-            Renderer::DrawRect(frame.x, frame.y, frame.width, 1.0f, ApplyOpacity(CurrentTheme->border, primitive_.opacity), 0.0f);
-            Color focusColor = CurrentTheme->primary;
-            focusColor.a = focusAnim_;
-            Renderer::DrawRect(frame.x, frame.y, frame.width, 2.0f, ApplyOpacity(focusColor, primitive_.opacity), 0.0f);
-        } else {
-            Renderer::DrawRect(frame.x, frame.y, frame.width, 1.0f, ApplyOpacity(CurrentTheme->border, primitive_.opacity), 0.0f);
-        }
+        const UIFieldVisualTokens visuals = CurrentFieldVisuals();
+        DrawFieldChrome(primitive_, hoverAnim_, focusAnim_, primitive_.rounding);
 
         const float textScale = fontSize_ / 24.0f;
-        const float textX = frame.x + 10.0f;
+        const float textX = frame.x + visuals.horizontalInset;
         const float textY = frame.y + frame.height * 0.5f + (fontSize_ / 4.0f);
 
         if (text_.empty()) {
@@ -210,7 +191,8 @@ protected:
 private:
     void requestRepaint(float expand = 4.0f, float duration = 0.0f) {
         (void)expand;
-        requestVisualRepaint(duration);
+        (void)duration;
+        requestVisualRepaint();
     }
 
     std::string placeholder_;

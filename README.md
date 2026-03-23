@@ -1,6 +1,6 @@
 # EUI-NEO
 
-EUI-NEO 是一个基于 OpenGL + GLFW 的声明式 2D GUI 框架。当前仓库已经收敛到一套比较明确的结构：
+EUI-NEO 是一个基于 OpenGL + GLFW 的声明式 2D GUI 框架。
 
 - 页面放在 `src/pages`，尽量一页一个 `.h`
 - 组件放在 `src/components`，尽量一个组件一个 `.h`
@@ -21,9 +21,7 @@ EUI-NEO/
 ├─ README.md
 ├─ docs/
 │  ├─ ui_dsl_analysis.md
-│  ├─ ui_dsl_guardrails.md
-│  ├─ gpui_full_redraw_optimization.md
-│  └─ fix.md
+│  └─ gpui_full_redraw_optimization.md
 ├─ src/
 │  ├─ EUINEO.h
 │  ├─ EUINEO.cpp
@@ -187,6 +185,4 @@ EUI_UI_COMPONENT(templateCard, TemplateCardNode)
 ## 相关文档
 
 - `docs/ui_dsl_analysis.md`
-- `docs/ui_dsl_guardrails.md`
 - `docs/gpui_full_redraw_optimization.md`
-- `docs/fix.md`

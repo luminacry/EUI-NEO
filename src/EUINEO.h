@@ -266,8 +266,9 @@ extern Theme* CurrentTheme;
 
 enum class RenderLayer {
     Backdrop = 0,
-    Chrome = 1,
-    Content = 2,
+    Content = 1,
+    Chrome = 2,
+    Popup = 3,
     Count
 };
 
@@ -285,6 +286,10 @@ struct UIState {
     std::string textInput;
     bool keys[512] = {false};
     bool keysPressed[512] = {false};
+    float scrollDeltaX = 0.0f;
+    float scrollDeltaY = 0.0f;
+    bool scrollConsumed = false;
+    bool pointerMoved = false;
 
     bool needsRepaint = true;
     float animationTimeLeft = 0.0f;

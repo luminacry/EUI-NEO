@@ -2,6 +2,7 @@
 
 #include "../EUINEO.h"
 #include "../ui/UIBuilder.h"
+#include "../ui/ThemeTokens.h"
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -59,57 +60,59 @@ public:
         return StaticTypeName();
     }
 
+    bool wantsContinuousUpdate() const override {
+        if (hoverAnim_ > 0.001f && hoverAnim_ < 0.999f) {
+            return true;
+        }
+        if (openAnim_ > 0.001f && openAnim_ < 0.999f) {
+            return true;
+        }
+        for (float hover : itemHoverAnims_) {
+            if (hover > 0.001f && hover < 0.999f) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     RectFrame paintBounds() const override {
         const RectFrame frame = PrimitiveFrame(primitive_);
-        RectFrame bounds = frame;
-        if (primitive_.hasClipRect) {
-            const float x1 = std::max(bounds.x, primitive_.clipRect.x);
-            const float y1 = std::max(bounds.y, primitive_.clipRect.y);
-            const float x2 = std::min(bounds.x + bounds.width, primitive_.clipRect.x + primitive_.clipRect.width);
-            const float y2 = std::min(bounds.y + bounds.height, primitive_.clipRect.y + primitive_.clipRect.height);
-            bounds.x = x1;
-            bounds.y = y1;
-            bounds.width = std::max(0.0f, x2 - x1);
-            bounds.height = std::max(0.0f, y2 - y1);
-        }
-
+        RectFrame bounds = popupPresentation_ ? frame : clipPaintBounds(frame);
         const float visibleOpen = std::clamp(openAnim_, 0.0f, 1.0f);
         const float visibleListHeight = listVisibleHeight(frame.height, items_.size(), visibleOpen);
-        if (visibleListHeight > 1.0f) {
-            const float overlap = listOverlap(visibleListHeight);
-            bounds = RectFrame{
-                std::min(bounds.x, frame.x),
-                std::min(bounds.y, frame.y + frame.height - overlap),
-                std::max(bounds.x + bounds.width, frame.x + frame.width) - std::min(bounds.x, frame.x),
-                std::max(bounds.y + bounds.height, frame.y + frame.height + visibleListHeight) -
-                    std::min(bounds.y, frame.y + frame.height - overlap)
-            };
+        if (visibleListHeight <= 0.0f) {
+            return bounds;
         }
-        return bounds;
+
+        const UIFieldVisualTokens visuals = CurrentFieldVisuals();
+        const RectFrame popupFrame = PopupListFrame(frame, visibleListHeight, listOverlap(visibleListHeight));
+        const RectFrame popupBounds = measurePaintBounds(
+            popupFrame,
+            MakePopupChromeStyle(primitive_, visuals.popupRounding),
+            !popupPresentation_
+        );
+        return unionPaintBounds(bounds, popupBounds);
     }
 
     void update() override {
         ensureRuntimeState();
         const RectFrame frame = PrimitiveFrame(primitive_);
-        const bool hoveredMain = primitive_.enabled && PrimitiveContains(primitive_, State.mouseX, State.mouseY);
+        const bool hoveredMain = hovered();
 
-        const float targetHover = hoveredMain ? 1.0f : 0.0f;
-        if (std::abs(hoverAnim_ - targetHover) > 0.001f) {
-            hoverAnim_ = Lerp(hoverAnim_, targetHover, State.deltaTime * 15.0f);
-            if (std::abs(hoverAnim_ - targetHover) < 0.01f) {
-                hoverAnim_ = targetHover;
-            }
+        if (animateTowards(hoverAnim_, hoveredMain ? 1.0f : 0.0f, State.deltaTime * 15.0f)) {
             requestRepaint(openAnim_, openAnim_);
         }
 
         const float targetOpen = isOpen_ ? 1.0f : 0.0f;
-        if (std::abs(openAnim_ - targetOpen) > 0.001f) {
-            const float fromOpen = openAnim_;
-            openAnim_ = Lerp(openAnim_, targetOpen, State.deltaTime * 20.0f);
-            if (std::abs(openAnim_ - targetOpen) < 0.01f) {
-                openAnim_ = targetOpen;
-            }
+        const float fromOpen = openAnim_;
+        if (animateTowards(openAnim_, targetOpen, State.deltaTime * 20.0f)) {
             requestRepaint(fromOpen, openAnim_);
+        }
+
+        const bool wantsPopupPresentation = isOpen_ || openAnim_ > 0.001f;
+        if (popupPresentation_ != wantsPopupPresentation) {
+            popupPresentation_ = wantsPopupPresentation;
+            requestComposeRebuild();
         }
 
         if (isOpen_ || openAnim_ > 0.0f) {
@@ -121,11 +124,7 @@ public:
                     State.mouseY >= itemY && State.mouseY <= itemY + frame.height;
 
                 const float targetItemHover = (itemHovered && isOpen_) ? 1.0f : 0.0f;
-                if (std::abs(itemHoverAnims_[index] - targetItemHover) > 0.001f) {
-                    itemHoverAnims_[index] = Lerp(itemHoverAnims_[index], targetItemHover, State.deltaTime * 15.0f);
-                    if (std::abs(itemHoverAnims_[index] - targetItemHover) < 0.01f) {
-                        itemHoverAnims_[index] = targetItemHover;
-                    }
+                if (animateTowards(itemHoverAnims_[index], targetItemHover, State.deltaTime * 15.0f)) {
                     requestRepaint(openAnim_, openAnim_);
                 }
             }
@@ -162,24 +161,19 @@ public:
 
     void draw() override {
         const RectFrame frame = PrimitiveFrame(primitive_);
+        const UIFieldVisualTokens visuals = CurrentFieldVisuals();
         const float textScale = fontSize_ / 24.0f;
-        const float textX = frame.x + 10.0f;
+        const float textX = frame.x + visuals.horizontalInset;
         const float textY = frame.y + frame.height * 0.5f + (fontSize_ / 4.0f);
         const float visibleOpen = std::clamp(openAnim_, 0.0f, 1.0f);
         const float visibleListHeight = listVisibleHeight(frame.height, items_.size(), visibleOpen);
 
         if (visibleListHeight > 1.0f) {
             const float overlap = listOverlap(visibleListHeight);
-            const float listY = frame.y + frame.height - overlap;
-            const float listHeight = visibleListHeight + overlap;
-            Renderer::DrawRect(
-                frame.x,
-                listY,
-                frame.width,
-                listHeight,
-                ApplyOpacity(CurrentTheme->surface, primitive_.opacity),
-                6.0f
-            );
+            const RectFrame popupFrame = PopupListFrame(frame, visibleListHeight, overlap);
+            const float listY = popupFrame.y;
+            const float listHeight = popupFrame.height;
+            DrawPopupChrome(primitive_, popupFrame, visuals.popupRounding);
 
             for (std::size_t index = 0; index < items_.size(); ++index) {
                 const float itemY = frame.y + frame.height + static_cast<float>(index) * frame.height;
@@ -215,10 +209,7 @@ public:
 
         {
             PrimitiveClipScope clip(primitive_);
-            Color baseColor = Lerp(CurrentTheme->surface, CurrentTheme->surfaceActive, openAnim_);
-            Color hoverColor = Lerp(CurrentTheme->surfaceHover, CurrentTheme->surfaceActive, openAnim_);
-            const Color background = ApplyOpacity(Lerp(baseColor, hoverColor, hoverAnim_), primitive_.opacity);
-            Renderer::DrawRect(frame.x, frame.y, frame.width, frame.height, background, 6.0f);
+            DrawFieldChrome(primitive_, hoverAnim_, openAnim_, primitive_.rounding);
 
             const std::string displayText =
                 (selectedIndex_ >= 0 && selectedIndex_ < static_cast<int>(items_.size())) ? items_[selectedIndex_] : placeholder_;
@@ -235,6 +226,9 @@ public:
 protected:
     void resetDefaults() override {
         primitive_ = UIPrimitive{};
+        if (popupPresentation_) {
+            applyPopupPresentationDefaults(180);
+        }
         primitive_.width = 220.0f;
         primitive_.height = 36.0f;
         placeholder_.clear();
@@ -262,7 +256,8 @@ private:
     void requestRepaint(float fromOpenFactor, float toOpenFactor, float duration = 0.0f) {
         (void)fromOpenFactor;
         (void)toOpenFactor;
-        requestVisualRepaint(duration);
+        (void)duration;
+        requestVisualRepaint();
     }
 
     std::vector<std::string> items_;
@@ -271,6 +266,7 @@ private:
     float fontSize_ = 20.0f;
     std::function<void(int)> onChange_;
     bool isOpen_ = false;
+    bool popupPresentation_ = false;
     float hoverAnim_ = 0.0f;
     float openAnim_ = 0.0f;
     std::vector<float> itemHoverAnims_;

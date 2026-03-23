@@ -39,57 +39,59 @@ public:
         return StaticTypeName();
     }
 
-    RectFrame paintBounds() const override {
-        const RectFrame frame = PrimitiveFrame(primitive_);
-        const float handleRadius = 8.0f;
-        RectFrame bounds{
-            frame.x - handleRadius,
-            frame.y,
-            frame.width + handleRadius * 2.0f,
-            frame.height
-        };
+    bool wantsContinuousUpdate() const override {
+        return isDragging_ ||
+               (hoverAnim_ > 0.001f && hoverAnim_ < 0.999f) ||
+               (activeAnim_ > 0.001f && activeAnim_ < 0.999f);
+    }
 
-        if (primitive_.hasClipRect) {
-            const float x1 = std::max(bounds.x, primitive_.clipRect.x);
-            const float y1 = std::max(bounds.y, primitive_.clipRect.y);
-            const float x2 = std::min(bounds.x + bounds.width, primitive_.clipRect.x + primitive_.clipRect.width);
-            const float y2 = std::min(bounds.y + bounds.height, primitive_.clipRect.y + primitive_.clipRect.height);
-            bounds.x = x1;
-            bounds.y = y1;
-            bounds.width = std::max(0.0f, x2 - x1);
-            bounds.height = std::max(0.0f, y2 - y1);
-        }
-        return bounds;
+    RectFrame paintBounds() const override {
+        return expandPrimitivePaintBounds(8.0f, 0.0f, 8.0f, 0.0f);
     }
 
     void update() override {
         const RectFrame frame = PrimitiveFrame(primitive_);
         const float clampedValue = std::clamp(value_, 0.0f, 1.0f);
-        const float handleWidth = 10.0f;
-        const float handleX = frame.x + clampedValue * frame.width - handleWidth * 0.5f;
-        const float handleY = frame.y + (frame.height - 16.0f) * 0.5f;
+        const float handleDiameter = 16.0f;
+        const float handleRadius = handleDiameter * 0.5f;
+        const float handleCenterX = frame.x + clampedValue * frame.width;
+        const float handleCenterY = frame.y + frame.height * 0.5f;
+        const bool hoveredTrack = primitive_.enabled && PrimitiveContains(primitive_, State.mouseX, State.mouseY);
+        const bool hoveredHandle = primitive_.enabled &&
+            State.mouseX >= handleCenterX - handleRadius - 4.0f && State.mouseX <= handleCenterX + handleRadius + 4.0f &&
+            State.mouseY >= handleCenterY - handleRadius - 4.0f && State.mouseY <= handleCenterY + handleRadius + 4.0f;
 
-        const bool hovered = primitive_.enabled &&
-            State.mouseX >= handleX && State.mouseX <= handleX + handleWidth &&
-            State.mouseY >= handleY && State.mouseY <= handleY + 16.0f;
-
-        const float targetHover = (hovered || isDragging_) ? 1.0f : 0.0f;
+        const float targetHover = (hoveredTrack || hoveredHandle || isDragging_) ? 1.0f : 0.0f;
         if (std::abs(hoverAnim_ - targetHover) > 0.001f) {
-            hoverAnim_ = Lerp(hoverAnim_, targetHover, State.deltaTime * ((hovered || isDragging_) ? 15.0f : 10.0f));
+            hoverAnim_ = Lerp(hoverAnim_, targetHover, State.deltaTime * ((hoveredTrack || isDragging_) ? 15.0f : 10.0f));
             if (std::abs(hoverAnim_ - targetHover) < 0.001f) {
                 hoverAnim_ = targetHover;
             }
-            requestRepaint(12.0f);
+            requestRepaint(12.0f, 0.16f);
         }
 
-        if (hovered && State.mouseDown && !State.mouseClicked) {
+        const float targetActive = isDragging_ ? 1.0f : 0.0f;
+        if (std::abs(activeAnim_ - targetActive) > 0.001f) {
+            activeAnim_ = Lerp(activeAnim_, targetActive, State.deltaTime * 18.0f);
+            if (std::abs(activeAnim_ - targetActive) < 0.001f) {
+                activeAnim_ = targetActive;
+            }
+            requestRepaint(12.0f, 0.18f);
+        }
+
+        if (primitive_.enabled && State.mouseClicked && hoveredTrack) {
             isDragging_ = true;
-        }
-        if (!State.mouseDown) {
-            isDragging_ = false;
+            requestRepaint(12.0f, 0.18f);
         }
 
-        if (isDragging_ && frame.width > 0.0f) {
+        if (!State.mouseDown) {
+            if (isDragging_) {
+                isDragging_ = false;
+                requestRepaint(12.0f, 0.18f);
+            }
+        }
+
+        if (primitive_.enabled && isDragging_ && frame.width > 0.0f) {
             const float relativeX = State.mouseX - frame.x;
             const float nextValue = std::clamp(relativeX / frame.width, 0.0f, 1.0f);
             if (std::abs(value_ - nextValue) > 0.0001f) {
@@ -97,7 +99,7 @@ public:
                 if (onChange_) {
                     onChange_(value_);
                 }
-                requestRepaint(12.0f);
+                requestRepaint(12.0f, 0.18f);
             }
         }
     }
@@ -106,34 +108,49 @@ public:
         PrimitiveClipScope clip(primitive_);
         const RectFrame frame = PrimitiveFrame(primitive_);
         const float clampedValue = std::clamp(value_, 0.0f, 1.0f);
+        const float emphasis = std::clamp(std::max(hoverAnim_, activeAnim_), 0.0f, 1.0f);
 
         const float trackHeight = 4.0f;
         const float trackY = frame.y + (frame.height - trackHeight) * 0.5f;
+        const Color idleTrack = ApplyOpacity(CurrentTheme->surface, primitive_.opacity);
+        const Color activeTrack = ApplyOpacity(
+            Color(CurrentTheme->primary.r, CurrentTheme->primary.g, CurrentTheme->primary.b,
+                  CurrentTheme == &DarkTheme ? 0.28f : 0.18f),
+            primitive_.opacity
+        );
         Renderer::DrawRect(
             frame.x,
             trackY,
             frame.width,
             trackHeight,
-            ApplyOpacity(CurrentTheme->surface, primitive_.opacity),
+            Lerp(idleTrack, activeTrack, emphasis),
             trackHeight * 0.5f
         );
 
         if (clampedValue > 0.01f) {
+            const Color fillColor = ApplyOpacity(
+                Lerp(
+                    Color(CurrentTheme->primary.r, CurrentTheme->primary.g, CurrentTheme->primary.b, 0.86f),
+                    CurrentTheme->primary,
+                    emphasis
+                ),
+                primitive_.opacity
+            );
             Renderer::DrawRect(
                 frame.x,
                 trackY,
                 frame.width * clampedValue,
                 trackHeight,
-                ApplyOpacity(CurrentTheme->primary, primitive_.opacity),
+                fillColor,
                 trackHeight * 0.5f
             );
         }
 
-        const float handleRadius = 8.0f;
+        const float handleRadius = Lerp(8.0f, 9.5f, emphasis);
         const float handleX = frame.x + clampedValue * frame.width - handleRadius;
         const float handleY = frame.y + (frame.height - handleRadius * 2.0f) * 0.5f;
         const Color handleColor = ApplyOpacity(
-            Lerp(CurrentTheme->text, CurrentTheme->primary, hoverAnim_),
+            Lerp(CurrentTheme->text, CurrentTheme->primary, emphasis),
             primitive_.opacity
         );
         Renderer::DrawRect(handleX, handleY, handleRadius * 2.0f, handleRadius * 2.0f, handleColor, handleRadius);
@@ -151,13 +168,15 @@ protected:
 private:
     void requestRepaint(float expand = 12.0f, float duration = 0.0f) {
         (void)expand;
-        requestVisualRepaint(duration);
+        (void)duration;
+        requestVisualRepaint();
     }
 
     float value_ = 0.0f;
     std::function<void(float)> onChange_;
     bool isDragging_ = false;
     float hoverAnim_ = 0.0f;
+    float activeAnim_ = 0.0f;
 };
 
 } // namespace EUINEO

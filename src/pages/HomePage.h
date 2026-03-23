@@ -3,6 +3,7 @@
 #include <algorithm>
 #include "../EUINEO.h"
 #include "../ui/UIContext.h"
+#include "../ui/ThemeTokens.h"
 #include <functional>
 #include <string>
 #include <vector>
@@ -27,10 +28,16 @@ public:
                         const std::string& inputText,
                         const std::vector<std::string>& comboItems, int comboSelection,
                         const Actions& actions) {
-        const float gap = 16.0f;
-        const float titleY = bounds.y + 24.0f;
-        const float subtitleY = titleY + 30.0f;
-        const float actionsY = subtitleY + 38.0f;
+        const PageVisualTokens visuals = CurrentPageVisuals();
+        const PageHeaderLayout header = ComposePageHeader(
+            ui,
+            idPrefix,
+            bounds,
+            "Home Controls",
+            "Basic widgets use the same page spacing and top-aligned layout."
+        );
+        const float gap = visuals.sectionGap;
+        const float actionsY = header.contentY;
         const bool wideActions = bounds.width >= 420.0f;
         const float actionHeight = wideActions ? 76.0f : 144.0f;
         const float formY = actionsY + actionHeight + gap;
@@ -42,30 +49,10 @@ public:
             ? (bounds.width - buttonGap * 2.0f - 40.0f) / 3.0f
             : std::max(0.0f, bounds.width - 40.0f);
         const float buttonX = bounds.x + 20.0f;
-        const float formInset = 20.0f;
-        const float columnGap = 16.0f;
-        const Color cardColor = CurrentTheme->surface;
+        const float formInset = visuals.sectionInset;
+        const float columnGap = visuals.sectionGap;
 
-        ui.label(idPrefix + ".title")
-            .text("Home Controls")
-            .position(bounds.x, titleY)
-            .fontSize(31.0f)
-            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.98f))
-            .build();
-
-        ui.label(idPrefix + ".subtitle")
-            .text("Basic widgets use the same page spacing and top-aligned layout.")
-            .position(bounds.x, subtitleY)
-            .fontSize(17.0f)
-            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.72f))
-            .build();
-
-        ui.panel(idPrefix + ".actions")
-            .position(bounds.x, actionsY)
-            .size(bounds.width, actionHeight)
-            .background(cardColor)
-            .rounding(18.0f)
-            .build();
+        ComposePageSection(ui, idPrefix + ".actions", RectFrame{bounds.x, actionsY, bounds.width, actionHeight});
 
         ui.button(idPrefix + ".primary")
             .text("Primary")
@@ -111,12 +98,7 @@ public:
             return;
         }
 
-        ui.panel(idPrefix + ".form")
-            .position(bounds.x, formY)
-            .size(bounds.width, formHeight)
-            .background(cardColor)
-            .rounding(18.0f)
-            .build();
+        ComposePageSection(ui, idPrefix + ".form", RectFrame{bounds.x, formY, bounds.width, formHeight});
 
         const float innerX = bounds.x + formInset;
         const float innerY = formY + formInset;
@@ -138,14 +120,14 @@ public:
         ui.label(idPrefix + ".progress.label")
             .text("Progress")
             .position(leftX + 18.0f, leftY + 28.0f)
-            .fontSize(17.0f)
+            .fontSize(visuals.labelSize)
             .build();
 
         ui.label(idPrefix + ".progress.value")
             .text(std::to_string(static_cast<int>(progressValue * 100.0f)) + "%")
             .position(progressValueX, leftY + 28.0f)
             .fontSize(16.0f)
-            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.68f))
+            .color(visuals.bodyColor)
             .build();
 
         ui.progress(idPrefix + ".progress")
@@ -168,7 +150,7 @@ public:
         ui.label(idPrefix + ".segmented.label")
             .text("Segment")
             .position(leftX + 18.0f, leftY + 126.0f)
-            .fontSize(17.0f)
+            .fontSize(visuals.labelSize)
             .build();
 
         ui.segmented(idPrefix + ".segmented")
@@ -187,12 +169,12 @@ public:
         ui.label(idPrefix + ".input.label")
             .text("Input")
             .position(rightX + 18.0f, rightY + 28.0f)
-            .fontSize(17.0f)
+            .fontSize(visuals.labelSize)
             .build();
 
         ui.input(idPrefix + ".input")
             .position(rightX + 18.0f, rightY + 56.0f)
-            .size(rightFieldWidth, 35.0f)
+            .size(rightFieldWidth, visuals.fieldHeight)
             .placeholder("Type something...")
             .fontSize(20.0f)
             .text(inputText)
@@ -206,12 +188,12 @@ public:
         ui.label(idPrefix + ".combo.label")
             .text("Combo")
             .position(rightX + 18.0f, rightY + 108.0f)
-            .fontSize(17.0f)
+            .fontSize(visuals.labelSize)
             .build();
 
         ui.combo(idPrefix + ".combo")
             .position(rightX + 18.0f, rightY + 136.0f)
-            .size(rightFieldWidth, 35.0f)
+            .size(rightFieldWidth, visuals.fieldHeight)
             .placeholder("Select an option")
             .fontSize(20.0f)
             .items(comboItems)

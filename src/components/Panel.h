@@ -89,4 +89,30 @@ protected:
     }
 };
 
+class PopupPanelNode : public PanelNode {
+public:
+    using Builder = DefaultNodeBuilder<PopupPanelNode>;
+    using PanelNode::PanelNode;
+
+    static constexpr const char* StaticTypeName() {
+        return "PopupPanelNode";
+    }
+
+    const char* typeName() const override {
+        return StaticTypeName();
+    }
+
+protected:
+    void resetDefaults() override {
+        PanelNode::resetDefaults();
+        applyPopupPresentationDefaults();
+        primitive_.rounding = 14.0f;
+        primitive_.shadow.blur = CurrentTheme == &DarkTheme ? 24.0f : 18.0f;
+        primitive_.shadow.offsetY = CurrentTheme == &DarkTheme ? 12.0f : 8.0f;
+        primitive_.shadow.color = CurrentTheme == &DarkTheme
+            ? Color(0.0f, 0.0f, 0.0f, 0.34f)
+            : Color(0.10f, 0.14f, 0.22f, 0.16f);
+    }
+};
+
 } // namespace EUINEO

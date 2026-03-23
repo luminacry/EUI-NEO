@@ -21,6 +21,8 @@ struct UIShadow {
 struct UIPrimitive {
     float x = 0.0f;
     float y = 0.0f;
+    float contextOffsetX = 0.0f;
+    float contextOffsetY = 0.0f;
     float width = 0.0f;
     float height = 0.0f;
     float minWidth = 0.0f;
@@ -45,6 +47,7 @@ struct UIPrimitive {
     bool enabled = true;
     RenderLayer renderLayer = RenderLayer::Content;
     int zIndex = 0;
+    bool clipToParent = true;
     bool hasClipRect = false;
     UIClipRect clipRect;
 };

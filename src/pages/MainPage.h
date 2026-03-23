@@ -38,7 +38,7 @@ public:
             ComposeTree();
         }
         ui_.update();
-        if (stateVersion_ != versionBeforeUpdate) {
+        if (stateVersion_ != versionBeforeUpdate || ui_.consumeRecomposeRequest()) {
             ComposeTree();
         }
     }

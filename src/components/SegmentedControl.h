@@ -53,6 +53,14 @@ public:
         return StaticTypeName();
     }
 
+    bool wantsContinuousUpdate() const override {
+        if (items_.empty()) {
+            return false;
+        }
+        const int clampedSelected = std::clamp(selectedIndex_, 0, static_cast<int>(items_.size()) - 1);
+        return !indicatorReady_ || std::abs(indicatorAnim_ - static_cast<float>(clampedSelected)) > 0.001f;
+    }
+
     void update() override {
         const int clampedSelected = items_.empty()
             ? 0
@@ -132,7 +140,8 @@ protected:
 private:
     void requestRepaint(float expand = 4.0f, float duration = 0.0f) {
         (void)expand;
-        requestVisualRepaint(duration);
+        (void)duration;
+        requestVisualRepaint();
     }
 
     std::vector<std::string> items_;

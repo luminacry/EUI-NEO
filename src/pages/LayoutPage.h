@@ -2,7 +2,9 @@
 
 #include "../EUINEO.h"
 #include "../ui/UIContext.h"
+#include "../ui/ThemeTokens.h"
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <string>
 
@@ -20,50 +22,36 @@ public:
             return;
         }
 
-        const float gap = 16.0f;
+        const PageVisualTokens visuals = CurrentPageVisuals();
+        const PageHeaderLayout header = ComposePageHeader(
+            ui,
+            idPrefix,
+            bounds,
+            "Layout Playground",
+            "Drag the slider to test left and right layout balance."
+        );
+        const float gap = visuals.sectionGap;
         const float split = std::clamp(splitRatio, 0.28f, 0.72f);
         const float sliderValue = (split - 0.28f) / 0.44f;
 
-        const Color cardColor = CurrentTheme->surface;
-        const float titleY = bounds.y + 24.0f;
-        const float subtitleY = titleY + 30.0f;
-        const float controlY = subtitleY + 38.0f;
+        const float controlY = header.contentY;
         const float controlH = 76.0f;
         const float previewY = controlY + controlH + gap;
         const float previewH = std::max(0.0f, bounds.y + bounds.height - previewY);
 
-        ui.label(idPrefix + ".title")
-            .text("Layout Playground")
-            .position(bounds.x, titleY)
-            .fontSize(31.0f)
-            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.98f))
-            .build();
-
-        ui.label(idPrefix + ".subtitle")
-            .text("Drag the slider to test left and right layout balance.")
-            .position(bounds.x, subtitleY)
-            .fontSize(17.0f)
-            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.72f))
-            .build();
-
-        ui.panel(idPrefix + ".control")
-            .position(bounds.x, controlY)
-            .size(bounds.width, controlH)
-            .background(cardColor)
-            .rounding(18.0f)
-            .build();
+        ComposePageSection(ui, idPrefix + ".control", RectFrame{bounds.x, controlY, bounds.width, controlH});
 
         ui.label(idPrefix + ".control.label")
             .text("Left / Right Split")
             .position(bounds.x + 20.0f, controlY + 26.0f)
-            .fontSize(17.0f)
+            .fontSize(visuals.labelSize)
             .build();
 
         ui.label(idPrefix + ".control.value")
             .text(std::to_string(static_cast<int>(split * 100.0f)) + "%")
             .position(std::max(bounds.x + 20.0f, bounds.x + bounds.width - 72.0f), controlY + 26.0f)
             .fontSize(16.0f)
-            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.68f))
+            .color(visuals.bodyColor)
             .build();
 
         ui.slider(idPrefix + ".control.slider")
@@ -81,17 +69,12 @@ public:
             return;
         }
 
-        ui.panel(idPrefix + ".preview")
-            .position(bounds.x, previewY)
-            .size(bounds.width, previewH)
-            .background(cardColor)
-            .rounding(18.0f)
-            .build();
+        ComposePageSection(ui, idPrefix + ".preview", RectFrame{bounds.x, previewY, bounds.width, previewH});
 
-        const float innerX = bounds.x + 20.0f;
-        const float innerY = previewY + 20.0f;
-        const float innerW = std::max(0.0f, bounds.width - 40.0f);
-        const float innerH = std::max(0.0f, previewH - 40.0f);
+        const float innerX = bounds.x + visuals.sectionInset;
+        const float innerY = previewY + visuals.sectionInset;
+        const float innerW = std::max(0.0f, bounds.width - visuals.sectionInset * 2.0f);
+        const float innerH = std::max(0.0f, previewH - visuals.sectionInset * 2.0f);
         if (innerW <= 0.0f || innerH <= 0.0f) {
             return;
         }
@@ -108,7 +91,7 @@ public:
         ui.panel(idPrefix + ".divider")
             .position(innerX + leftW, innerY + 18.0f)
             .size(gap, std::max(0.0f, innerH - 36.0f))
-            .background(Color(CurrentTheme->primary.r, CurrentTheme->primary.g, CurrentTheme->primary.b, 0.16f))
+            .background(visuals.softAccentColor)
             .rounding(8.0f)
             .build();
 
@@ -125,6 +108,8 @@ private:
         if (width <= 0.0f || height <= 0.0f) {
             return;
         }
+
+        const PageVisualTokens visuals = CurrentPageVisuals();
 
         ui.label(idPrefix + ".title")
             .text(title)
@@ -146,7 +131,7 @@ private:
             .text(note)
             .position(x + 18.0f, y + 56.0f)
             .fontSize(14.0f)
-            .color(Color(CurrentTheme->text.r, CurrentTheme->text.g, CurrentTheme->text.b, 0.68f))
+            .color(visuals.bodyColor)
             .build();
 
         ui.label(idPrefix + ".width")
@@ -160,12 +145,48 @@ private:
             return;
         }
 
-        ui.panel(idPrefix + ".preview")
-            .position(x + 18.0f, y + 122.0f)
-            .size(std::max(0.0f, width - 36.0f), std::max(0.0f, height - 142.0f))
-            .background(CurrentTheme->surface)
-            .rounding(12.0f)
-            .build();
+        const float previewX = x + 18.0f;
+        const float previewY = y + 122.0f;
+        const float previewW = std::max(0.0f, width - 36.0f);
+        const float previewH = std::max(0.0f, height - 142.0f);
+        ComposePageSection(ui, idPrefix + ".preview", RectFrame{previewX, previewY, previewW, previewH}, visuals.mutedCardColor);
+
+        const float scrollX = previewX + 12.0f;
+        const float scrollY = previewY + 12.0f;
+        const float scrollW = std::max(0.0f, previewW - 24.0f);
+        const float scrollH = std::max(0.0f, previewH - 24.0f);
+        if (scrollW <= 0.0f || scrollH <= 0.0f) {
+            return;
+        }
+
+        static const std::array<const char*, 10> rows{{
+            "Header / Toolbar",
+            "Sidebar / Filters",
+            "Primary Content",
+            "Inspector / Details",
+            "Footer Actions",
+            "Overflow Content",
+            "Search Results",
+            "Selection Summary",
+            "Pinned Notes",
+            "Bottom Utilities",
+        }};
+        const float rowHeight = 28.0f;
+        const float contentHeight = std::max(
+            scrollH + 180.0f,
+            28.0f + static_cast<float>(rows.size()) * rowHeight + 20.0f
+        );
+        ui.scrollArea(idPrefix + ".preview.scroll", scrollX, scrollY, scrollW, scrollH, contentHeight, [&] {
+            for (std::size_t index = 0; index < rows.size(); ++index) {
+                const float rowY = scrollY + 22.0f + static_cast<float>(index) * rowHeight;
+                ui.label(idPrefix + ".preview.row" + std::to_string(index))
+                    .text(rows[index])
+                    .position(scrollX, rowY)
+                    .fontSize(index == 0 ? 15.0f : 14.0f)
+                    .color(index == 0 ? visuals.titleColor : visuals.bodyColor)
+                    .build();
+            }
+        });
     }
 };
 

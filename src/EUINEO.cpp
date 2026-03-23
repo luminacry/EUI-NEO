@@ -1,4 +1,5 @@
 #include "EUINEO.h"
+#include "ui/ThemeTokens.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cmath>
@@ -156,25 +157,9 @@ PanelState Lerp(const PanelState& a, const PanelState& b, float t) {
     return out;
 }
 
-Theme LightTheme = {
-    Color(0.95f, 0.95f, 0.97f),
-    Color(0.2f, 0.5f, 0.9f),
-    Color(1.0f, 1.0f, 1.0f),
-    Color(0.9f, 0.9f, 0.9f),
-    Color(0.8f, 0.8f, 0.8f),
-    Color(0.0f, 0.0f, 0.0f),
-    Color(0.8f, 0.8f, 0.8f)
-};
+Theme LightTheme = MakeTheme(LightThemeColors());
 
-Theme DarkTheme = {
-    Color(0.1f, 0.1f, 0.12f),
-    Color(0.3f, 0.6f, 1.0f),
-    Color(0.15f, 0.15f, 0.18f),
-    Color(0.25f, 0.25f, 0.28f),
-    Color(0.35f, 0.35f, 0.38f),
-    Color(1.0f, 1.0f, 1.0f),
-    Color(0.3f, 0.3f, 0.3f)
-};
+Theme DarkTheme = MakeTheme(DarkThemeColors());
 
 Theme* CurrentTheme = &DarkTheme;
 UIState State;
@@ -740,16 +725,47 @@ static void EnsureCachedSurfaceStorage(CachedSurface& cache, int width, int heig
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+static void CurrentProjectionBounds(float& outL, float& outR, float& outT, float& outB) {
+    outL = 0.0f;
+    outR = State.screenW;
+    outB = State.screenH;
+    outT = 0.0f;
+
+    if (ActiveCustomSurface) {
+        if (ActiveCustomSurfaceBounds.width > 0.0f && ActiveCustomSurfaceBounds.height > 0.0f) {
+            outL = ActiveCustomSurfaceBounds.x;
+            outR = ActiveCustomSurfaceBounds.x + ActiveCustomSurfaceBounds.width;
+            outT = ActiveCustomSurfaceBounds.y;
+            outB = ActiveCustomSurfaceBounds.y + ActiveCustomSurfaceBounds.height;
+        }
+        return;
+    }
+
+    if (ActiveLayerIndex >= 0) {
+        const RenderLayer layer = LayerFromIndex(ActiveLayerIndex);
+        if (UsesTightLayerSurface(layer)) {
+            const RectFrame& bounds = LayerCaches[ActiveLayerIndex].bounds;
+            if (bounds.width > 0.0f && bounds.height > 0.0f) {
+                outL = bounds.x;
+                outR = bounds.x + bounds.width;
+                outT = bounds.y;
+                outB = bounds.y + bounds.height;
+            }
+        }
+    }
+}
+
 static void CompositeTexture(const GLuint texture, const RectFrame& bounds,
                              float uvX, float uvY, float uvW, float uvH) {
     if (texture == 0 || bounds.width <= 0.0f || bounds.height <= 0.0f) {
         return;
     }
 
-    const float L = 0.0f;
-    const float R = State.screenW;
-    const float B = State.screenH;
-    const float T = 0.0f;
+    float L = 0.0f;
+    float R = State.screenW;
+    float B = State.screenH;
+    float T = 0.0f;
+    CurrentProjectionBounds(L, R, T, B);
     const float proj[16] = {
         2.0f / (R - L), 0, 0, 0,
         0, 2.0f / (T - B), 0, 0,
@@ -1158,6 +1174,12 @@ void Renderer::DrawCachedSurface(const std::string& key, const RectFrame& bounds
         return;
     }
 
+    const int previousLayerIndex = ActiveLayerIndex;
+    const bool previousCustomSurface = ActiveCustomSurface;
+    const RectFrame previousCustomSurfaceBounds = ActiveCustomSurfaceBounds;
+    const int previousCustomSurfaceWidth = ActiveCustomSurfaceWidth;
+    const int previousCustomSurfaceHeight = ActiveCustomSurfaceHeight;
+
     CachedSurface& cache = CachedSurfaces[key];
     const int targetW = std::max(1, static_cast<int>(std::ceil(bounds.width)));
     const int targetH = std::max(1, static_cast<int>(std::ceil(bounds.height)));
@@ -1190,8 +1212,20 @@ void Renderer::DrawCachedSurface(const std::string& key, const RectFrame& bounds
 
         cache.ready = true;
         CurrentActiveProgram = 0;
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, std::max(1, (int)State.screenW), std::max(1, (int)State.screenH));
+        ActiveCustomSurface = previousCustomSurface;
+        ActiveCustomSurfaceBounds = previousCustomSurfaceBounds;
+        ActiveCustomSurfaceWidth = previousCustomSurfaceWidth;
+        ActiveCustomSurfaceHeight = previousCustomSurfaceHeight;
+
+        if (previousLayerIndex >= 0) {
+            glBindFramebuffer(GL_FRAMEBUFFER, LayerCaches[previousLayerIndex].framebuffer);
+            glViewport(0, 0,
+                       std::max(1, LayerCaches[previousLayerIndex].width),
+                       std::max(1, LayerCaches[previousLayerIndex].height));
+        } else {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glViewport(0, 0, std::max(1, (int)State.screenW), std::max(1, (int)State.screenH));
+        }
     }
 
     CompositeTexture(cache.texture, cache.bounds, 0.0f, 0.0f, 1.0f, 1.0f);
@@ -1218,29 +1252,12 @@ void Renderer::InvalidateLayer(RenderLayer layer) {
 }
 
 void Renderer::BeginFrame() {
+    glDisable(GL_SCISSOR_TEST);
     float L = 0.0f;
     float R = State.screenW;
     float B = State.screenH;
     float T = 0.0f;
-    if (ActiveCustomSurface) {
-        if (ActiveCustomSurfaceBounds.width > 0.0f && ActiveCustomSurfaceBounds.height > 0.0f) {
-            L = ActiveCustomSurfaceBounds.x;
-            R = ActiveCustomSurfaceBounds.x + ActiveCustomSurfaceBounds.width;
-            T = ActiveCustomSurfaceBounds.y;
-            B = ActiveCustomSurfaceBounds.y + ActiveCustomSurfaceBounds.height;
-        }
-    } else if (ActiveLayerIndex >= 0) {
-        const RenderLayer layer = LayerFromIndex(ActiveLayerIndex);
-        if (UsesTightLayerSurface(layer)) {
-            const RectFrame& bounds = LayerCaches[ActiveLayerIndex].bounds;
-            if (bounds.width > 0.0f && bounds.height > 0.0f) {
-                L = bounds.x;
-                R = bounds.x + bounds.width;
-                T = bounds.y;
-                B = bounds.y + bounds.height;
-            }
-        }
-    }
+    CurrentProjectionBounds(L, R, T, B);
     float proj[16] = {
         2.0f / (R - L), 0, 0, 0,
         0, 2.0f / (T - B), 0, 0,

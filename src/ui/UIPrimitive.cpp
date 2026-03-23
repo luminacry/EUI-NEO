@@ -101,7 +101,13 @@ RectStyle MakeStyle(const UIPrimitive& primitive) {
 }
 
 RectFrame PrimitiveFrame(const UIPrimitive& primitive) {
-    return ResolveFrame(primitive.x, primitive.y, primitive.width, primitive.height, primitive.anchor);
+    return ResolveFrame(
+        primitive.x + primitive.contextOffsetX,
+        primitive.y + primitive.contextOffsetY,
+        primitive.width,
+        primitive.height,
+        primitive.anchor
+    );
 }
 
 bool PrimitiveContains(const UIPrimitive& primitive, float x, float y) {

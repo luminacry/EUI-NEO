@@ -21,6 +21,13 @@ namespace EUINEO {
 // If you later want ui.templateCard("..."), add:
 // EUI_UI_COMPONENT(templateCard, TemplateCardNode)
 // to src/ui/UIComponents.def
+//
+// UINode already gives you:
+// hovered(), animateTowards(...), expandPrimitivePaintBounds(...),
+// requestComposeRebuild(...), applyPopupPresentationDefaults(...)
+// If you are building an input-like control, also include:
+// ../ui/ThemeTokens.h
+// then reuse DrawFieldChrome(...) / DrawPopupChrome(...)
 
 class TemplateCardNode : public UINode {
 public:
@@ -39,6 +46,10 @@ public:
         return StaticTypeName();
     }
 
+    RectFrame paintBounds() const override {
+        return expandPrimitivePaintBounds(12.0f, 12.0f, 12.0f, 12.0f);
+    }
+
     void setTitle(std::string value) {
         title_ = std::move(value);
     }
@@ -52,10 +63,10 @@ public:
     }
 
     void update() override {
-        const bool hovered = primitive_.enabled && PrimitiveContains(primitive_, State.mouseX, State.mouseY);
-        if (hovered != hovered_) {
-            hovered_ = hovered;
-            liftAnimation_.PlayTo(hovered ? 1.0f : 0.0f, 0.16f, hovered ? Easing::EaseOut : Easing::EaseInOut);
+        const bool isHovered = hovered();
+        if (isHovered != hovered_) {
+            hovered_ = isHovered;
+            liftAnimation_.PlayTo(isHovered ? 1.0f : 0.0f, 0.16f, isHovered ? Easing::EaseOut : Easing::EaseInOut);
             requestRepaint(12.0f, 0.18f);
         }
 

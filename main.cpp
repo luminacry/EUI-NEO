@@ -48,11 +48,12 @@ int main() {
             std::abs(EUINEO::State.mouseY - nextY) > 0.01f) {
             EUINEO::State.mouseX = nextX;
             EUINEO::State.mouseY = nextY;
-            EUINEO::Renderer::RequestRepaint();
+            EUINEO::State.pointerMoved = true;
             return;
         }
         EUINEO::State.mouseX = nextX;
         EUINEO::State.mouseY = nextY;
+
     });
 
     glfwSetMouseButtonCallback(window, [](GLFWwindow*, int button, int action, int mods) {
@@ -90,6 +91,12 @@ int main() {
             EUINEO::State.textInput += (char)(0x80 | ((codepoint >> 6) & 0x3f));
             EUINEO::State.textInput += (char)(0x80 | (codepoint & 0x3f));
         }
+        EUINEO::Renderer::RequestRepaint();
+    });
+
+    glfwSetScrollCallback(window, [](GLFWwindow*, double xoffset, double yoffset) {
+        EUINEO::State.scrollDeltaX += static_cast<float>(xoffset);
+        EUINEO::State.scrollDeltaY += static_cast<float>(yoffset);
         EUINEO::Renderer::RequestRepaint();
     });
 
@@ -184,6 +191,7 @@ int main() {
         const bool frameRequestedBeforeUpdate =
             EUINEO::State.needsRepaint ||
             EUINEO::State.animationTimeLeft > 0.0f ||
+            EUINEO::State.pointerMoved ||
             mainPage.WantsContinuousUpdate();
         if (frameRequestedBeforeUpdate) {
             mainPage.Update();
@@ -207,6 +215,10 @@ int main() {
         }
 
         EUINEO::State.textInput.clear();
+        EUINEO::State.scrollDeltaX = 0.0f;
+        EUINEO::State.scrollDeltaY = 0.0f;
+        EUINEO::State.scrollConsumed = false;
+        EUINEO::State.pointerMoved = false;
         memset(EUINEO::State.keysPressed, 0, sizeof(EUINEO::State.keysPressed));
 
         if (shouldDraw || EUINEO::State.animationTimeLeft > 0) {

@@ -117,6 +117,18 @@ public:
         return self();
     }
 
+    Derived& clipToParent(bool value) {
+        node_.primitive().clipToParent = value;
+        return self();
+    }
+
+    Derived& escapeClip() {
+        node_.primitive().clipToParent = false;
+        node_.primitive().hasClipRect = false;
+        node_.primitive().clipRect = UIClipRect{};
+        return self();
+    }
+
     Derived& background(const Color& value) {
         node_.primitive().background = value;
         return self();
@@ -176,6 +188,11 @@ public:
     Derived& layer(RenderLayer value) {
         node_.primitive().renderLayer = value;
         return self();
+    }
+
+    Derived& popupLayer() {
+        node_.primitive().renderLayer = RenderLayer::Popup;
+        return escapeClip();
     }
 
     Derived& zIndex(int value) {

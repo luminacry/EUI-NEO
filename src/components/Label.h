@@ -53,23 +53,12 @@ public:
         const float textScale = fontSize_ / 24.0f;
         const float textWidth = std::max(Renderer::MeasureTextWidth(text_, textScale), 1.0f);
         const float textHeight = std::max(32.0f * textScale * 1.35f, 1.0f);
-        RectFrame bounds{
+        return clipPaintBounds(RectFrame{
             frame.x + primitive_.translateX,
             frame.y + primitive_.translateY - textHeight,
             textWidth,
             textHeight
-        };
-        if (primitive_.hasClipRect) {
-            const float x1 = std::max(bounds.x, primitive_.clipRect.x);
-            const float y1 = std::max(bounds.y, primitive_.clipRect.y);
-            const float x2 = std::min(bounds.x + bounds.width, primitive_.clipRect.x + primitive_.clipRect.width);
-            const float y2 = std::min(bounds.y + bounds.height, primitive_.clipRect.y + primitive_.clipRect.height);
-            bounds.x = x1;
-            bounds.y = y1;
-            bounds.width = std::max(0.0f, x2 - x1);
-            bounds.height = std::max(0.0f, y2 - y1);
-        }
-        return bounds;
+        });
     }
 
     void draw() override {

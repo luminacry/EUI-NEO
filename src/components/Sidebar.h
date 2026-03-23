@@ -73,6 +73,24 @@ public:
         return StaticTypeName();
     }
 
+    bool wantsContinuousUpdate() const override {
+        const int clampedSelectedIndex = items_.empty()
+            ? 0
+            : std::clamp(selectedIndex_, 0, static_cast<int>(items_.size()) - 1);
+        if (!selectionReady_ || std::abs(selectionAnim_ - static_cast<float>(clampedSelectedIndex)) > 0.001f) {
+            return true;
+        }
+        for (float hover : itemHover_) {
+            if (hover > 0.001f && hover < 0.999f) {
+                return true;
+            }
+        }
+        if (themeHover_ > 0.001f && themeHover_ < 0.999f) {
+            return true;
+        }
+        return themePressed_ || themeRotationAnimation_.IsActive() || themeBlendAnimation_.IsActive();
+    }
+
     void update() override;
     void draw() override;
 
@@ -125,7 +143,8 @@ private:
 
     void requestRepaint(float expand = 18.0f, float duration = 0.0f) {
         (void)expand;
-        requestVisualRepaint(duration);
+        (void)duration;
+        requestVisualRepaint();
     }
 
     std::string brandPrimary_;
