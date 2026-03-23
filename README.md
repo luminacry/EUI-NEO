@@ -128,6 +128,75 @@ ui.end();
 - `src/pages/AnimationPage.h`
 - `src/pages/LayoutPage.h`
 
+## 当前锚点定位
+
+现在这套锚点定位不是约束布局，也不是相对父容器自动排版；它本质上是：
+
+- `9` 宫格屏幕锚点
+- 组件自己的 `x / y / width / height`
+- 再叠加当前上下文偏移 `contextOffsetX / contextOffsetY`
+
+当前支持的锚点枚举：
+
+- `TopLeft`
+- `TopCenter`
+- `TopRight`
+- `CenterLeft`
+- `Center`
+- `CenterRight`
+- `BottomLeft`
+- `BottomCenter`
+- `BottomRight`
+
+默认锚点是 `TopLeft`。
+
+实际计算规则在 `src/ui/UIPrimitive.cpp`，等价于：
+
+```cpp
+finalX = x + contextOffsetX + anchorOffsetX(screenW, width);
+finalY = y + contextOffsetY + anchorOffsetY(screenH, height);
+```
+
+也就是：
+
+- `TopLeft`：`x/y` 就是左上角绝对坐标
+- `TopCenter`：先把组件放到屏幕顶部水平居中，再加 `x/y`
+- `TopRight`：先贴到屏幕右上角，再加 `x/y`
+- `Center`：先放到屏幕中心，再加 `x/y`
+- `BottomRight`：先贴到屏幕右下角，再加 `x/y`
+
+示例：
+
+```cpp
+ui.button("confirm")
+    .size(160.0f, 44.0f)
+    .anchor(EUINEO::Anchor::BottomRight)
+    .position(-24.0f, -24.0f)
+    .text("Confirm")
+    .build();
+```
+
+这表示按钮先按右下角锚定到屏幕，再向左上回退 `24px`。
+
+要注意两点：
+
+- 这个锚点当前是基于 `State.screenW / State.screenH` 解析的，也就是基于屏幕，不是基于父面板局部宽高。
+- `scrollArea`、`popup` 这类容器效果，本质上靠 `contextOffset + clip` 实现，不是新的锚点系统。
+
+所以项目当前页面布局的真实写法仍然是“先手工算出区域 bounds，再把控件放进去”。例如：
+
+- `MainPage` 先算 `sidebar` 和 `content` 区域
+- `LayoutPage` 先算左右分栏宽度，再放组件
+- 页面头部和 section 复用 `src/ui/ThemeTokens.h` 里的 helper
+
+当前还没有：
+
+- 相对父容器四边锚定
+- 自动拉伸填充
+- sibling 约束
+- flex / grid / auto layout
+- `left/top/right/bottom` 同时求解尺寸
+
 ## 自定义组件
 
 推荐路径是先直接用 `ui.node<T>()`，不要一上来就改 `UIContext`。
