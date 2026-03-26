@@ -60,7 +60,9 @@ add_executable(eui_neo main.cpp ${SRC_FILES})
 
 # 压缩可执行文件大小和内存优化标志（针对 MSVC/GCC 等）
 if(MSVC)
-    target_compile_options(eui_neo PRIVATE /O1 /GS- /sdl- /utf-8)
+    # Release already gets /O2 from CMake; adding /O1 here only triggers D9025 and
+    # forces the slower size-focused optimizer. Keep the hardening/encoding flags only.
+    target_compile_options(eui_neo PRIVATE /GS- /sdl- /utf-8)
     target_link_options(eui_neo PRIVATE /OPT:REF /OPT:ICF /ENTRY:mainCRTStartup /SUBSYSTEM:WINDOWS)
 else()
     target_compile_options(eui_neo PRIVATE -Os -fno-exceptions -fno-rtti)

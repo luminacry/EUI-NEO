@@ -251,6 +251,17 @@ inline void SidebarNode::draw() {
     drawPanel(shell, shellStyle, primitive_.borderWidth, ApplyOpacity(primitive_.borderColor, primitive_.opacity));
 
     const bool showLabels = shell.width >= 128.0f;
+    const auto centeredOrigin = [](float start, float extent, float boundsOffset, float boundsSize) {
+        return start + (extent - boundsSize) * 0.5f - boundsOffset;
+    };
+    const auto centeredTextY = [&](const RectFrame& frame, const std::string& text, float scale, float fallbackHeight) {
+        RectFrame bounds = Renderer::MeasureTextBounds(text, scale);
+        const float height = std::max(bounds.height, fallbackHeight);
+        return centeredOrigin(frame.y, frame.height, bounds.y, height);
+    };
+    constexpr float kIconInset = 16.0f;
+    constexpr float kIconSlotWidth = 20.0f;
+    constexpr float kLabelGap = 12.0f;
     const float brandPrimaryScale = 28.0f / 24.0f;
     const float brandSecondaryScale = 22.0f / 24.0f;
     const float primaryWidth = Renderer::MeasureTextWidth(brandPrimary_, brandPrimaryScale);
@@ -290,21 +301,24 @@ inline void SidebarNode::draw() {
             : Lerp(withAlpha(CurrentTheme->text, CurrentTheme == &DarkTheme ? 0.60f : 0.72f),
                    withAlpha(CurrentTheme->text, 0.96f), itemHover_[index]);
 
-        float iconX = frame.x + 16.0f;
-        if (!showLabels) {
-            const RectFrame iconBounds = Renderer::MeasureTextBounds(items_[index].icon, iconScale);
-            iconX = frame.x + (frame.width - iconBounds.width) * 0.5f - iconBounds.x;
-        }
-
-        Renderer::DrawTextStr(items_[index].icon, iconX, frame.y + frame.height * 0.5f + 8.0f, iconColor, iconScale);
+        const RectFrame iconBounds = Renderer::MeasureTextBounds(items_[index].icon, iconScale);
+        const float iconX = showLabels
+            ? centeredOrigin(frame.x + kIconInset, kIconSlotWidth, iconBounds.x, iconBounds.width)
+            : centeredOrigin(frame.x, frame.width, iconBounds.x, iconBounds.width);
+        const float iconY = centeredTextY(frame, items_[index].icon, iconScale, 20.0f * 0.8f);
+        Renderer::DrawTextStr(items_[index].icon, iconX, iconY, iconColor, iconScale);
 
         if (showLabels) {
+            constexpr float labelFontSize = 16.0f;
+            const float labelScale = labelFontSize / 24.0f;
             const Color labelColor = selected
                 ? withAlpha(CurrentTheme->text, 0.98f)
                 : Lerp(withAlpha(CurrentTheme->text, CurrentTheme == &DarkTheme ? 0.68f : 0.80f),
                        withAlpha(CurrentTheme->text, 0.96f), itemHover_[index] * 0.85f);
-            Renderer::DrawTextStr(items_[index].label, frame.x + 48.0f, frame.y + frame.height * 0.5f + 7.0f,
-                                  labelColor, 16.0f / 24.0f);
+            Renderer::DrawTextStr(items_[index].label,
+                                  frame.x + kIconInset + kIconSlotWidth + kLabelGap,
+                                  centeredTextY(frame, items_[index].label, labelScale, labelFontSize * 0.8f),
+                                  labelColor, labelScale);
         }
     }
 
@@ -314,24 +328,32 @@ inline void SidebarNode::draw() {
                        Lerp(CurrentTheme->surfaceHover, CurrentTheme->primary, toggleMix), 14.0f);
 
     const float iconScale = 18.0f / 24.0f;
-    float iconX = toggleFrame.x + 16.0f;
-    if (!showLabels) {
-        const RectFrame iconBounds = Renderer::MeasureTextBounds("\xEF\x86\x86", iconScale);
-        iconX = toggleFrame.x + (toggleFrame.width - iconBounds.width) * 0.5f - iconBounds.x;
-    }
-    const float iconY = toggleFrame.y + toggleFrame.height * 0.5f + 7.0f;
+    const std::string moonIcon = "\xEF\x86\x86";
+    const std::string sunIcon = "\xEF\x86\x85";
+    const RectFrame moonBounds = Renderer::MeasureTextBounds(moonIcon, iconScale);
+    const RectFrame sunBounds = Renderer::MeasureTextBounds(sunIcon, iconScale);
+    const float iconSlotX = showLabels ? toggleFrame.x + kIconInset : toggleFrame.x;
+    const float iconSlotWidth = showLabels ? kIconSlotWidth : toggleFrame.width;
+    const float moonX = centeredOrigin(iconSlotX, iconSlotWidth, moonBounds.x, moonBounds.width);
+    const float sunX = centeredOrigin(iconSlotX, iconSlotWidth, sunBounds.x, sunBounds.width);
+    const float moonY = centeredTextY(toggleFrame, moonIcon, iconScale, 18.0f * 0.8f);
+    const float sunY = centeredTextY(toggleFrame, sunIcon, iconScale, 18.0f * 0.8f);
     const Color iconColor = withAlpha(CurrentTheme->text, 0.96f);
-    Renderer::DrawTextStr("\xEF\x86\x86", iconX, iconY,
+    Renderer::DrawTextStr(moonIcon, moonX, moonY,
                           blendAlpha(iconColor, 1.0f - std::clamp(themeBlend_, 0.0f, 1.0f)),
                           iconScale, themeRotation_);
-    Renderer::DrawTextStr("\xEF\x86\x85", iconX, iconY,
+    Renderer::DrawTextStr(sunIcon, sunX, sunY,
                           blendAlpha(iconColor, std::clamp(themeBlend_, 0.0f, 1.0f)),
                           iconScale, themeRotation_);
 
     if (showLabels) {
-        Renderer::DrawTextStr(CurrentTheme == &DarkTheme ? "Dark Theme" : "Light Theme",
-                              toggleFrame.x + 48.0f, toggleFrame.y + toggleFrame.height * 0.5f + 7.0f,
-                              withAlpha(CurrentTheme->text, 0.90f), 15.0f / 24.0f);
+        constexpr float labelFontSize = 15.0f;
+        const float labelScale = labelFontSize / 24.0f;
+        const std::string label = CurrentTheme == &DarkTheme ? "Dark Theme" : "Light Theme";
+        Renderer::DrawTextStr(label,
+                              toggleFrame.x + kIconInset + kIconSlotWidth + kLabelGap,
+                              centeredTextY(toggleFrame, label, labelScale, labelFontSize * 0.8f),
+                              withAlpha(CurrentTheme->text, 0.90f), labelScale);
     }
 }
 

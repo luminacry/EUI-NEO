@@ -7,8 +7,27 @@
 #include "src/EUINEO.h"
 #include "src/pages/MainPage.h"
 
-bool lastLeftDown = false;
-bool lastRightDown = false;
+namespace {
+
+int gFramebufferW = 0;
+int gFramebufferH = 0;
+int gWindowW = 0;
+int gWindowH = 0;
+
+void UpdateMousePosition(double x, double y) {
+    const float mouseScaleX = gWindowW > 0 ? static_cast<float>(gFramebufferW) / static_cast<float>(gWindowW) : 1.0f;
+    const float mouseScaleY = gWindowH > 0 ? static_cast<float>(gFramebufferH) / static_cast<float>(gWindowH) : 1.0f;
+    const float nextX = static_cast<float>(x) * mouseScaleX;
+    const float nextY = static_cast<float>(y) * mouseScaleY;
+    if (std::abs(EUINEO::State.mouseX - nextX) > 0.01f ||
+        std::abs(EUINEO::State.mouseY - nextY) > 0.01f) {
+        EUINEO::State.pointerMoved = true;
+    }
+    EUINEO::State.mouseX = nextX;
+    EUINEO::State.mouseY = nextY;
+}
+
+}
 
 int main() {
     glfwInit();
@@ -28,6 +47,8 @@ int main() {
 
     glfwSetFramebufferSizeCallback(window, [](GLFWwindow*, int w, int h) {
         glViewport(0, 0, w, h);
+        gFramebufferW = w;
+        gFramebufferH = h;
         EUINEO::State.screenW = (float)w;
         EUINEO::State.screenH = (float)h;
         EUINEO::Renderer::InvalidateBackdrop();
@@ -38,24 +59,25 @@ int main() {
     int initialFbW = 0;
     int initialFbH = 0;
     glfwGetFramebufferSize(window, &initialFbW, &initialFbH);
+    gFramebufferW = initialFbW;
+    gFramebufferH = initialFbH;
     glViewport(0, 0, initialFbW, initialFbH);
     EUINEO::State.screenW = (float)initialFbW;
     EUINEO::State.screenH = (float)initialFbH;
+    glfwGetWindowSize(window, &gWindowW, &gWindowH);
+
+    glfwSetWindowSizeCallback(window, [](GLFWwindow*, int w, int h) {
+        gWindowW = w;
+        gWindowH = h;
+    });
 
     glfwSetCursorPosCallback(window, [](GLFWwindow*, double x, double y) {
-        const float nextX = (float)x;
-        const float nextY = (float)y;
-        if (std::abs(EUINEO::State.mouseX - nextX) > 0.01f ||
-            std::abs(EUINEO::State.mouseY - nextY) > 0.01f) {
-            EUINEO::State.mouseX = nextX;
-            EUINEO::State.mouseY = nextY;
-            EUINEO::State.pointerMoved = true;
-            return;
-        }
-        EUINEO::State.mouseX = nextX;
-        EUINEO::State.mouseY = nextY;
-
+        UpdateMousePosition(x, y);
     });
+    double initialMouseX = 0.0;
+    double initialMouseY = 0.0;
+    glfwGetCursorPos(window, &initialMouseX, &initialMouseY);
+    UpdateMousePosition(initialMouseX, initialMouseY);
 
     glfwSetMouseButtonCallback(window, [](GLFWwindow*, int button, int action, int mods) {
         if (button == GLFW_MOUSE_BUTTON_LEFT) {
@@ -182,7 +204,6 @@ int main() {
 
     EUINEO::MainPage mainPage{}; // Force recompilation when header-only pages change.
     double lastTime = glfwGetTime();
-
     while (!glfwWindowShouldClose(window)) {
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
             glfwSetWindowShouldClose(window, 1);
@@ -192,34 +213,6 @@ int main() {
         float dt = (float)(currentTime - lastTime);
         EUINEO::State.deltaTime = dt > 0.05f ? 0.05f : dt;
         lastTime = currentTime;
-
-        int w = 0;
-        int h = 0;
-        glfwGetFramebufferSize(window, &w, &h);
-        EUINEO::State.screenW = (float)w;
-        EUINEO::State.screenH = (float)h;
-
-        double mx = 0.0;
-        double my = 0.0;
-        glfwGetCursorPos(window, &mx, &my);
-        int winW = 0;
-        int winH = 0;
-        glfwGetWindowSize(window, &winW, &winH);
-        float mouseScaleX = (winW > 0) ? ((float)w / (float)winW) : 1.0f;
-        float mouseScaleY = (winH > 0) ? ((float)h / (float)winH) : 1.0f;
-        EUINEO::State.mouseX = (float)mx * mouseScaleX;
-        EUINEO::State.mouseY = (float)my * mouseScaleY;
-
-        bool leftDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-        bool rightDown = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-
-        EUINEO::State.mouseDown = leftDown;
-        EUINEO::State.mouseRightDown = rightDown;
-        EUINEO::State.mouseClicked = (leftDown && !lastLeftDown);
-        EUINEO::State.mouseRightClicked = (rightDown && !lastRightDown);
-
-        lastLeftDown = leftDown;
-        lastRightDown = rightDown;
 
         const bool frameRequestedBeforeUpdate =
             EUINEO::State.needsRepaint ||
@@ -251,6 +244,8 @@ int main() {
         EUINEO::State.scrollDeltaX = 0.0f;
         EUINEO::State.scrollDeltaY = 0.0f;
         EUINEO::State.scrollConsumed = false;
+        EUINEO::State.mouseClicked = false;
+        EUINEO::State.mouseRightClicked = false;
         EUINEO::State.pointerMoved = false;
         memset(EUINEO::State.keysPressed, 0, sizeof(EUINEO::State.keysPressed));
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include "../EUINEO.h"
 #include "../ui/UIBuilder.h"
 #include <cmath>
@@ -10,6 +11,7 @@
 namespace EUINEO {
 
 enum class ButtonStyle { Default, Primary, Outline };
+enum class ButtonIconPlacement { Leading, Trailing };
 
 class ButtonNode : public UINode {
 public:
@@ -26,6 +28,18 @@ public:
         Builder& fontSize(float value) {
             this->node_.trackComposeValue("fontSize", value);
             this->node_.fontSize_ = value;
+            return *this;
+        }
+
+        Builder& icon(std::string value) {
+            this->node_.trackComposeValue("icon", value);
+            this->node_.icon_ = std::move(value);
+            return *this;
+        }
+
+        Builder& iconPlacement(ButtonIconPlacement value) {
+            this->node_.trackComposeValue("iconPlacement", value);
+            this->node_.iconPlacement_ = value;
             return *this;
         }
 
@@ -137,14 +151,39 @@ public:
         }
 
         const float textScale = fontSize_ / 24.0f;
-        const float textWidth = Renderer::MeasureTextWidth(text_, textScale);
-        const float textX = frame.x + (frame.width - textWidth) * 0.5f;
-        const float textY = frame.y + frame.height * 0.5f + (fontSize_ / 4.0f);
         const Color baseTextColor = hasTextColorOverride_
             ? textColorOverride_
             : (style_ == ButtonStyle::Primary ? Color(1.0f, 1.0f, 1.0f, 1.0f) : CurrentTheme->text);
         const Color textColor = ApplyOpacity(baseTextColor, primitive_.opacity);
-        Renderer::DrawTextStr(text_, textX, textY, textColor, textScale);
+        const float textY = frame.y + frame.height * 0.5f + (fontSize_ / 4.0f);
+
+        if (icon_.empty()) {
+            const float textWidth = Renderer::MeasureTextWidth(text_, textScale);
+            const float textX = frame.x + (frame.width - textWidth) * 0.5f;
+            Renderer::DrawTextStr(text_, textX, textY, textColor, textScale);
+            return;
+        }
+
+        const float iconScale = textScale;
+        const RectFrame iconBounds = Renderer::MeasureTextBounds(icon_, iconScale);
+        const float iconBoxWidth = std::max(iconBounds.width, fontSize_ * 0.8f);
+        const float textWidth = Renderer::MeasureTextWidth(text_, textScale);
+        const float contentGap = text_.empty() ? 0.0f : std::max(8.0f, fontSize_ * 0.5f);
+        const float groupWidth = iconBoxWidth + contentGap + textWidth;
+        const float groupX = frame.x + (frame.width - groupWidth) * 0.5f;
+        const float iconY = frame.y + (frame.height - std::max(iconBounds.height, fontSize_ * 0.8f)) * 0.5f - iconBounds.y;
+
+        if (iconPlacement_ == ButtonIconPlacement::Leading) {
+            const float iconX = groupX + (iconBoxWidth - iconBounds.width) * 0.5f - iconBounds.x;
+            Renderer::DrawTextStr(icon_, iconX, iconY, textColor, iconScale);
+            Renderer::DrawTextStr(text_, groupX + iconBoxWidth + contentGap, textY, textColor, textScale);
+            return;
+        }
+
+        Renderer::DrawTextStr(text_, groupX, textY, textColor, textScale);
+        Renderer::DrawTextStr(icon_,
+                              groupX + textWidth + contentGap + (iconBoxWidth - iconBounds.width) * 0.5f - iconBounds.x,
+                              iconY, textColor, iconScale);
     }
 
 protected:
@@ -153,10 +192,12 @@ protected:
         primitive_.width = 120.0f;
         primitive_.height = 40.0f;
         text_.clear();
+        icon_.clear();
         fontSize_ = 20.0f;
         hasTextColorOverride_ = false;
         textColorOverride_ = Color(0.0f, 0.0f, 0.0f, 0.0f);
         style_ = ButtonStyle::Default;
+        iconPlacement_ = ButtonIconPlacement::Leading;
         onClick_ = {};
     }
 
@@ -168,10 +209,12 @@ private:
     }
 
     std::string text_;
+    std::string icon_;
     float fontSize_ = 20.0f;
     bool hasTextColorOverride_ = false;
     Color textColorOverride_ = Color(0.0f, 0.0f, 0.0f, 0.0f);
     ButtonStyle style_ = ButtonStyle::Default;
+    ButtonIconPlacement iconPlacement_ = ButtonIconPlacement::Leading;
     std::function<void()> onClick_;
     float hoverAnim_ = 0.0f;
     float clickAnim_ = 0.0f;

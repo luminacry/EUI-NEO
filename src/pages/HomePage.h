@@ -79,7 +79,9 @@ public:
             .build();
 
         ui.button(idPrefix + ".icon")
-            .text("Icon  \xEF\x80\x93")
+            .text("Icon")
+            .icon("\xEF\x80\x93")
+            .iconPlacement(ButtonIconPlacement::Trailing)
             .position(
                 wideActions ? buttonX + (buttonWidth + buttonGap) * 2.0f : buttonX,
                 wideActions ? actionsY + buttonTop : actionsY + buttonTop + (40.0f + stackedButtonGap) * 2.0f

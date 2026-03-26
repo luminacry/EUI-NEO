@@ -49,7 +49,7 @@ public:
     void update() override {}
 
     bool usesCachedSurface() const override {
-        return false;
+        return true;
     }
 
     RectFrame layoutBounds() const override {

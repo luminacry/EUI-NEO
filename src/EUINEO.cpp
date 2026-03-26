@@ -261,9 +261,11 @@ static GLint CompositeUVSizeLoc = -1;
 static GLuint PolygonProgram = 0;
 static GLuint PolygonVAO = 0;
 static GLuint PolygonVBO = 0;
+static GLsizeiptr PolygonVBOCapacity = 0;
 static GLint PolygonProjLoc = -1;
 static GLint PolygonColorLoc = -1;
 static int ActiveLayerIndex = -1;
+static GLuint CurrentActiveProgram = 0;
 static bool ActiveCustomSurface = false;
 static RectFrame ActiveCustomSurfaceBounds;
 static int ActiveCustomSurfaceWidth = 0;
@@ -536,9 +538,15 @@ static bool RectGradientEq(const RectGradient& a, const RectGradient& b, float e
            ColorEq(a.bottomRight, b.bottomRight, epsilon);
 }
 
+static RenderLayer LayerFromIndex(int index);
+
 static bool CanReuseBlurCache(const RectStyle& style) {
-    (void)style;
-    return false;
+    // The cached blur texture copies pixels from the current full-screen source.
+    // Restrict reuse to the default framebuffer and the full-size backdrop layer
+    // so the copy coordinates remain valid without changing the output.
+    return style.blurAmount > 0.0f &&
+           !ActiveCustomSurface &&
+           (ActiveLayerIndex < 0 || LayerFromIndex(ActiveLayerIndex) == RenderLayer::Backdrop);
 }
 
 static void BuildTransformInverse(const RectTransform& transform, float out[4]) {
@@ -928,9 +936,11 @@ static void CompositeTexture(const GLuint texture, const RectFrame& bounds,
         -(R + L) / (R - L), -(T + B) / (T - B), 0, 1
     };
 
-    glUseProgram(CompositeProgram);
+    if (CurrentActiveProgram != CompositeProgram) {
+        glUseProgram(CompositeProgram);
+        CurrentActiveProgram = CompositeProgram;
+    }
     glUniformMatrix4fv(CompositeProjLoc, 1, GL_FALSE, proj);
-    glUniform1i(CompositeTextureLoc, 0);
     glUniform2f(CompositePosLoc, bounds.x, bounds.y);
     glUniform2f(CompositeSizeLoc, bounds.width, bounds.height);
     glUniform2f(CompositeUVPosLoc, uvX, uvY);
@@ -939,8 +949,6 @@ static void CompositeTexture(const GLuint texture, const RectFrame& bounds,
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
     glDrawArrays(GL_TRIANGLES, 0, 6);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    glBindVertexArray(0);
 }
 
 static bool MakeScreenScissorRect(const RectFrame& bounds, GLint& outX, GLint& outY, GLint& outW, GLint& outH) {
@@ -1050,6 +1058,7 @@ struct TextWidthCacheKeyHash {
 
 static std::unordered_map<unsigned int, Character> Characters;
 static std::unordered_map<TextWidthCacheKey, float, TextWidthCacheKeyHash> TextWidthCache;
+static std::unordered_map<TextWidthCacheKey, RectFrame, TextWidthCacheKeyHash> TextBoundsCache;
 static std::vector<FontSource> FontSources;
 static GLuint TextVAO = 0;
 static GLuint TextVBO = 0;
@@ -1213,6 +1222,7 @@ static bool LoadCharacterFromSource(FontSource& source, unsigned int codepoint) 
     }
 
     TextWidthCache.clear();
+    TextBoundsCache.clear();
     return true;
 }
 
@@ -1365,6 +1375,12 @@ void Renderer::Init() {
     CompositeUVSizeLoc = glGetUniformLocation(CompositeProgram, "uUVSize");
     PolygonProjLoc = glGetUniformLocation(PolygonProgram, "projection");
     PolygonColorLoc = glGetUniformLocation(PolygonProgram, "uColor");
+    glUseProgram(ShaderProgram);
+    glUniform1i(Channel0Loc, 0);
+    glUseProgram(CachedBlurProgram);
+    glUniform1i(CachedBlurTextureLoc, 0);
+    glUseProgram(CompositeProgram);
+    glUniform1i(CompositeTextureLoc, 0);
 
     glGenTextures(1, &BgTexture);
     glBindTexture(GL_TEXTURE_2D, BgTexture);
@@ -1394,7 +1410,8 @@ void Renderer::Init() {
     glGenBuffers(1, &PolygonVBO);
     glBindVertexArray(PolygonVAO);
     glBindBuffer(GL_ARRAY_BUFFER, PolygonVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 2 * 3, nullptr, GL_DYNAMIC_DRAW);
+    PolygonVBOCapacity = sizeof(float) * 2 * 3;
+    glBufferData(GL_ARRAY_BUFFER, PolygonVBOCapacity, nullptr, GL_DYNAMIC_DRAW);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -1455,6 +1472,7 @@ void Renderer::Shutdown() {
     }
     Characters.clear();
     TextWidthCache.clear();
+    TextBoundsCache.clear();
     FontSources.clear();
     for (LayerCache& cache : LayerCaches) {
         if (cache.framebuffer) glDeleteFramebuffers(1, &cache.framebuffer);
@@ -1483,8 +1501,6 @@ void Renderer::Shutdown() {
     glDeleteBuffers(1, &TextVBO);
     glDeleteProgram(TextShaderProgram);
 }
-
-static GLuint CurrentActiveProgram = 0;
 
 bool Renderer::MakeCurrentScissorRect(const RectFrame& bounds, GLint& outX, GLint& outY, GLint& outW, GLint& outH) {
     if (ActiveCustomSurface) {
@@ -1609,15 +1625,13 @@ void Renderer::DrawCachedSurface(const std::string& key, const RectFrame& bounds
     CachedSurface& cache = CachedSurfaces[key];
     const int targetW = std::max(1, static_cast<int>(std::ceil(bounds.width * CachedSurfaceSupersampleScale)));
     const int targetH = std::max(1, static_cast<int>(std::ceil(bounds.height * CachedSurfaceSupersampleScale)));
-    const bool boundsChanged =
-        !FloatEq(cache.bounds.x, bounds.x) ||
-        !FloatEq(cache.bounds.y, bounds.y) ||
+    const bool sizeChanged =
         !FloatEq(cache.bounds.width, bounds.width) ||
         !FloatEq(cache.bounds.height, bounds.height);
 
     EnsureCachedSurfaceStorage(cache, targetW, targetH);
-    if (dirty || !cache.ready || boundsChanged) {
-        cache.bounds = bounds;
+    cache.bounds = bounds;
+    if (dirty || !cache.ready || sizeChanged) {
         glBindFramebuffer(GL_FRAMEBUFFER, cache.framebuffer);
         glViewport(0, 0, targetW, targetH);
         glDisable(GL_SCISSOR_TEST);
@@ -1694,6 +1708,8 @@ void Renderer::BeginFrame() {
 
     glUseProgram(ShaderProgram);
     glUniformMatrix4fv(ProjLoc, 1, GL_FALSE, proj);
+    glUniform1f(TimeLoc, static_cast<float>(glfwGetTime()));
+    glUniform2f(ResolutionLoc, State.screenW, State.screenH);
 
     glUseProgram(CachedBlurProgram);
     glUniformMatrix4fv(CachedBlurProjLoc, 1, GL_FALSE, proj);
@@ -1727,7 +1743,6 @@ void Renderer::DrawRect(float x, float y, float w, float h, const RectStyle& sty
         BuildTransformInverse(style.transform, transformInv);
         glUniform2f(CachedBlurPosLoc, CachedBlurX, CachedBlurY);
         glUniform2f(CachedBlurSizeLoc, CachedBlurW, CachedBlurH);
-        glUniform1i(CachedBlurTextureLoc, 0);
         glUniform2f(CachedBlurBoxPosLoc, x, y);
         glUniform2f(CachedBlurBoxSizeLoc, w, h);
         glUniform2f(CachedBlurTranslateLoc, style.transform.translateX, style.transform.translateY);
@@ -1778,13 +1793,10 @@ void Renderer::DrawRect(float x, float y, float w, float h, const RectStyle& sty
                 style.gradient.bottomLeft.b, style.gradient.bottomLeft.a);
     glUniform4f(GradientBottomRightLoc, style.gradient.bottomRight.r, style.gradient.bottomRight.g,
                 style.gradient.bottomRight.b, style.gradient.bottomRight.a);
-    glUniform1f(TimeLoc, (float)glfwGetTime());
-    glUniform2f(ResolutionLoc, State.screenW, State.screenH);
 
     if (style.blurAmount > 0.0f) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, BgTexture);
-        glUniform1i(Channel0Loc, 0);
     }
 
     glEnable(GL_BLEND);
@@ -1879,7 +1891,12 @@ void Renderer::DrawPolygon(const std::vector<Point2>& points, const Color& fillC
     glUniform4f(PolygonColorLoc, fillColor.r, fillColor.g, fillColor.b, fillColor.a);
     glBindVertexArray(PolygonVAO);
     glBindBuffer(GL_ARRAY_BUFFER, PolygonVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * triangleVertices.size(), triangleVertices.data(), GL_DYNAMIC_DRAW);
+    const GLsizeiptr triangleBytes = static_cast<GLsizeiptr>(sizeof(float) * triangleVertices.size());
+    if (triangleBytes > PolygonVBOCapacity) {
+        PolygonVBOCapacity = triangleBytes;
+        glBufferData(GL_ARRAY_BUFFER, PolygonVBOCapacity, nullptr, GL_DYNAMIC_DRAW);
+    }
+    glBufferSubData(GL_ARRAY_BUFFER, 0, triangleBytes, triangleVertices.data());
     glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(triangles.size()));
 
     if (strokeWidth > 0.0f && strokeColor.a > 0.0f) {
@@ -1891,7 +1908,12 @@ void Renderer::DrawPolygon(const std::vector<Point2>& points, const Color& fillC
         }
 
         glUniform4f(PolygonColorLoc, strokeColor.r, strokeColor.g, strokeColor.b, strokeColor.a);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(float) * outlineVertices.size(), outlineVertices.data(), GL_DYNAMIC_DRAW);
+        const GLsizeiptr outlineBytes = static_cast<GLsizeiptr>(sizeof(float) * outlineVertices.size());
+        if (outlineBytes > PolygonVBOCapacity) {
+            PolygonVBOCapacity = outlineBytes;
+            glBufferData(GL_ARRAY_BUFFER, PolygonVBOCapacity, nullptr, GL_DYNAMIC_DRAW);
+        }
+        glBufferSubData(GL_ARRAY_BUFFER, 0, outlineBytes, outlineVertices.data());
         glLineWidth(std::max(1.0f, strokeWidth));
         glDrawArrays(GL_LINE_LOOP, 0, static_cast<GLsizei>(points.size()));
         glLineWidth(1.0f);
@@ -1952,9 +1974,12 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
     glUniform4f(TextColorLoc, color.r, color.g, color.b, color.a);
     glActiveTexture(GL_TEXTURE0);
     glBindVertexArray(TextVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, TextVBO);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+    int currentTextMode = -1;
+    GLuint currentTexture = 0;
     size_t i = 0;
     while (i < text.length()) {
         unsigned int c = 0;
@@ -1970,7 +1995,11 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
         if (!EnsureCharacterLoaded(c)) continue;
         const Character& charData = Characters[c];
         const float glyphScale = ResolveCharacterScale(charData, scale);
-        glUniform1i(TextModeLoc, charData.IsSdf ? 1 : 0);
+        const int textMode = charData.IsSdf ? 1 : 0;
+        if (textMode != currentTextMode) {
+            glUniform1i(TextModeLoc, textMode);
+            currentTextMode = textMode;
+        }
 
         const float xpos = x + charData.RenderBearing[0] * glyphScale;
         const float ypos = y + charData.RenderBearing[1] * glyphScale;
@@ -1998,20 +2027,25 @@ void Renderer::DrawTextStr(const std::string& text, float x, float y, const Colo
             }
         }
 
-        glBindTexture(GL_TEXTURE_2D, charData.TextureID);
-        glBindBuffer(GL_ARRAY_BUFFER, TextVBO);
+        if (charData.TextureID != currentTexture) {
+            glBindTexture(GL_TEXTURE_2D, charData.TextureID);
+            currentTexture = charData.TextureID;
+        }
         glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
         glDrawArrays(GL_TRIANGLES, 0, 6);
         x += charData.Advance * glyphScale;
     }
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
-    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 RectFrame Renderer::MeasureTextBounds(const std::string& text, float scale) {
     if (text.empty()) {
         return RectFrame{};
+    }
+
+    const TextWidthCacheKey cacheKey{text, MakeTextScaleKey(scale)};
+    auto cacheIt = TextBoundsCache.find(cacheKey);
+    if (cacheIt != TextBoundsCache.end()) {
+        return cacheIt->second;
     }
 
     float penX = 0.0f;
@@ -2063,10 +2097,20 @@ RectFrame Renderer::MeasureTextBounds(const std::string& text, float scale) {
     }
 
     if (!hasGlyphBounds) {
-        return RectFrame{0.0f, 0.0f, penX, 0.0f};
+        const RectFrame result{0.0f, 0.0f, penX, 0.0f};
+        if (TextBoundsCache.size() > 4096) {
+            TextBoundsCache.clear();
+        }
+        TextBoundsCache.emplace(cacheKey, result);
+        return result;
     }
 
-    return RectFrame{minX, minY, maxX - minX, maxY - minY};
+    const RectFrame result{minX, minY, maxX - minX, maxY - minY};
+    if (TextBoundsCache.size() > 4096) {
+        TextBoundsCache.clear();
+    }
+    TextBoundsCache.emplace(cacheKey, result);
+    return result;
 }
 
 float Renderer::MeasureTextWidth(const std::string& text, float scale) {
