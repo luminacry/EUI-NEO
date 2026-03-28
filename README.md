@@ -40,7 +40,6 @@ EUI-NEO/
 │  │  ├─ HomePage.h
 │  │  ├─ LayoutPage.h
 │  │  ├─ MainPage.h
-│  │  ├─ MainPageView.h
 │  │  └─ TypographyPage.h
 │  ├─ ui/
 │  │  ├─ UIBuilder.h
