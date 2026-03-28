@@ -5,23 +5,27 @@
 #include "LayoutPage.h"
 #include "TypographyPage.h"
 #include "../ui/UIContext.h"
-#include "MainPageView.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <string>
 #include <vector>
 
 namespace EUINEO {
+
+enum class MainPageView {
+    Home = 0,
+    Animation = 1,
+    Layout = 2,
+    Typography = 3,
+};
 
 class MainPage {
 public:
     MainPage() = default;
 
     void Update() {
-        bool pageRevealAnimating = false;
         if (pageReveal_ < 1.0f) {
             const float previous = pageReveal_;
             pageReveal_ = Lerp(pageReveal_, 1.0f, State.deltaTime * 11.0f);
@@ -29,31 +33,20 @@ public:
                 pageReveal_ = 1.0f;
             }
             if (std::abs(previous - pageReveal_) > 0.0001f) {
-                pageRevealAnimating = true;
-                Renderer::RequestRepaint(0.18f);
+                ui_.requestVisualRefresh(0.18f);
             }
         }
 
         const std::uint64_t versionBeforeUpdate = stateVersion_;
-        if (NeedsCompose(pageRevealAnimating)) {
-            ComposeTree();
-        }
+        Compose();
         ui_.update();
         if (stateVersion_ != versionBeforeUpdate || ui_.consumeRecomposeRequest()) {
-            ComposeTree();
+            Compose();
         }
     }
 
     void Draw() {
-        ui_.draw();
-    }
-
-    void DrawLayer(RenderLayer layer) {
-        ui_.draw(layer);
-    }
-
-    RectFrame LayerBounds(RenderLayer layer) const {
-        return ui_.layerBounds(layer);
+        ui_.render();
     }
 
     bool WantsContinuousUpdate() const {
@@ -129,21 +122,10 @@ private:
         ui_.end();
     }
 
-    void ComposeTree() {
-        Compose();
-        hasComposed_ = true;
-        composedStateVersion_ = stateVersion_;
-        composedView_ = currentView_;
-        composedScreenW_ = State.screenW;
-        composedScreenH_ = State.screenH;
-    }
-
     void ToggleTheme() {
         CurrentTheme = CurrentTheme == &DarkTheme ? &LightTheme : &DarkTheme;
         ++stateVersion_;
-        ui_.markAllNodesDirty();
-        Renderer::InvalidateAll();
-        Renderer::RequestRepaint(0.18f);
+        ui_.requestThemeRefresh(0.18f);
     }
 
     void SwitchView(MainPageView view) {
@@ -156,7 +138,7 @@ private:
         pageReveal_ = 0.0f;
         pageRevealDirection_ = nextIndex >= previousIndex ? 1 : -1;
         ++stateVersion_;
-        Renderer::RequestRepaint(0.18f);
+        ui_.requestVisualRefresh(0.18f);
     }
 
     struct Layout {
@@ -234,26 +216,6 @@ private:
         }
     }
 
-    bool NeedsCompose(bool pageRevealAnimating) const {
-        if (!hasComposed_) {
-            return true;
-        }
-        if (pageRevealAnimating) {
-            return true;
-        }
-        if (currentView_ != composedView_) {
-            return true;
-        }
-        if (stateVersion_ != composedStateVersion_) {
-            return true;
-        }
-        if (std::abs(composedScreenW_ - State.screenW) > 0.01f ||
-            std::abs(composedScreenH_ - State.screenH) > 0.01f) {
-            return true;
-        }
-        return false;
-    }
-
     void SetProgressValue(float value) {
         const float clamped = std::clamp(value, 0.0f, 1.0f);
         if (std::abs(progressValue_ - clamped) < 0.0001f) {
@@ -261,8 +223,7 @@ private:
         }
         progressValue_ = clamped;
         ++stateVersion_;
-        Renderer::InvalidateLayer(RenderLayer::Backdrop);
-        Renderer::RequestRepaint(0.18f);
+        ui_.requestBackdropRefresh(0.18f);
     }
 
     void SetSegmentedIndex(int index) {
@@ -320,8 +281,7 @@ private:
         DarkTheme.primary = accent;
 
         ++stateVersion_;
-        ui_.markAllNodesDirty();
-        Renderer::InvalidateAll();
+        ui_.requestThemeRefresh(0.18f);
     }
 
     void SetLayoutSplit(float value) {
@@ -351,11 +311,6 @@ private:
     std::uint32_t randomSeed_ = 0xC0FFEE11u;
     int accentIndex_ = 0;
     std::uint64_t stateVersion_ = 0;
-    std::uint64_t composedStateVersion_ = std::numeric_limits<std::uint64_t>::max();
-    MainPageView composedView_ = MainPageView::Home;
-    float composedScreenW_ = -1.0f;
-    float composedScreenH_ = -1.0f;
-    bool hasComposed_ = false;
 };
 
 } // namespace EUINEO

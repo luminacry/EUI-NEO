@@ -226,15 +226,6 @@ int main() {
         bool shouldDraw = EUINEO::Renderer::ShouldRepaint();
         if (shouldDraw) {
             EUINEO::State.frameCount++;
-            EUINEO::Renderer::SetLayerBounds(EUINEO::RenderLayer::Backdrop, mainPage.LayerBounds(EUINEO::RenderLayer::Backdrop));
-            if (EUINEO::Renderer::NeedsLayerRedraw(EUINEO::RenderLayer::Backdrop)) {
-                EUINEO::Renderer::BeginLayer(EUINEO::RenderLayer::Backdrop);
-                EUINEO::Renderer::BeginFrame();
-                mainPage.DrawLayer(EUINEO::RenderLayer::Backdrop);
-                EUINEO::Renderer::EndLayer();
-            }
-            EUINEO::Renderer::CompositeLayers(EUINEO::CurrentTheme->background);
-            EUINEO::Renderer::BeginFrame();
             mainPage.Draw();
             glfwSwapBuffers(window);
         }

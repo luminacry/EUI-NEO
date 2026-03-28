@@ -471,6 +471,19 @@ void UIContext::update() {
     refreshLayerBounds();
 }
 
+void UIContext::render() {
+    Renderer::SetLayerBounds(RenderLayer::Backdrop, layerBounds(RenderLayer::Backdrop));
+    if (Renderer::NeedsLayerRedraw(RenderLayer::Backdrop)) {
+        Renderer::BeginLayer(RenderLayer::Backdrop);
+        Renderer::BeginFrame();
+        draw(RenderLayer::Backdrop);
+        Renderer::EndLayer();
+    }
+    Renderer::CompositeLayers(CurrentTheme->background);
+    Renderer::BeginFrame();
+    draw();
+}
+
 void UIContext::draw() {
     if (drawOrderStamp_ != composeStamp_) {
         drawOrder_ = order_;
@@ -563,6 +576,21 @@ void UIContext::markAllNodesDirty() {
         }
     }
     Renderer::RequestRepaint();
+}
+
+void UIContext::requestVisualRefresh(float duration) {
+    Renderer::RequestRepaint(duration);
+}
+
+void UIContext::requestBackdropRefresh(float duration) {
+    Renderer::InvalidateLayer(RenderLayer::Backdrop);
+    Renderer::RequestRepaint(duration);
+}
+
+void UIContext::requestThemeRefresh(float duration) {
+    markAllNodesDirty();
+    Renderer::InvalidateAll();
+    Renderer::RequestRepaint(duration);
 }
 
 void UIContext::refreshLayerBounds() {

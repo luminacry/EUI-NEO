@@ -67,11 +67,15 @@ public:
     void begin(const std::string& pageId);
     void end();
     void update();
+    void render();
     void draw();
     void draw(RenderLayer layer);
     RectFrame layerBounds(RenderLayer layer) const;
     bool wantsContinuousUpdate() const;
     void markAllNodesDirty();
+    void requestVisualRefresh(float duration = 0.0f);
+    void requestBackdropRefresh(float duration = 0.0f);
+    void requestThemeRefresh(float duration = 0.18f);
     void pushClip(float x, float y, float width, float height);
     void popClip();
     float pushScrollArea(const std::string& id, float x, float y, float width, float height,
