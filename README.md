@@ -122,6 +122,7 @@ while (!glfwWindowShouldClose(window)) {
 
 - `app/basic_demo.cpp`
 - `app/calculator_demo.cpp`
+- `app/clock_demo.cpp`
 - `app/calculator_logic.h`
 
 如果你使用声明式 UI 运行时，入口函数是 `src/app/DslAppRuntime.h` 里的 `RunDslApp`。常见写法是：
@@ -158,6 +159,24 @@ config.fps = 120;
 - `config.fps <= 0`：默认垂直同步（VSync）
 - `config.fps > 0`：关闭 VSync，按目标帧率限帧
 - 不写 `fps` 时默认值是 `0`，等价于垂直同步
+
+### 常用 DSL 运行时 helper
+
+`src/app/DslAppRuntime.h` 里已经封装了一些常用能力，demo 里可以只写 UI 逻辑：
+
+```cpp
+EUINEO::UseDslLightTheme(EUINEO::Color(0.0f, 0.0f, 0.0f, 1.0f)); // 黑色背景
+
+ui.button("demo.github")
+    .onClick([]() {
+        EUINEO::OpenDslUrl("https://github.com/sudoevolve");
+    })
+    .build();
+```
+
+- `UseDslLightTheme(background)`：切换到 LightTheme 并设置背景色
+- `SetDslBackground(color)`：只改背景色并触发重绘
+- `OpenDslUrl(url)`：跨平台打开外部链接（Windows / macOS / Linux）
 
 ## 网络请求与图片显示
 

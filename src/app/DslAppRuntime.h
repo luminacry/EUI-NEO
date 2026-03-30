@@ -23,6 +23,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <shellapi.h>
 #include <urlmon.h>
 #endif
 
@@ -92,6 +93,22 @@ inline void SetDslWindowFullscreen(bool fullscreen) {
 
 inline void ToggleDslWindowFullscreen() {
     SetDslWindowFullscreen(!IsDslWindowFullscreen());
+}
+
+inline bool OpenDslUrl(const std::string& url) {
+    if (url.empty()) {
+        return false;
+    }
+#ifdef _WIN32
+    const HINSTANCE result = ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    return reinterpret_cast<INT_PTR>(result) > 32;
+#elif __APPLE__
+    const std::string command = "open \"" + url + "\"";
+    return std::system(command.c_str()) == 0;
+#else
+    const std::string command = "xdg-open \"" + url + "\"";
+    return std::system(command.c_str()) == 0;
+#endif
 }
 
 inline void SetDslBackground(const Color& color) {
