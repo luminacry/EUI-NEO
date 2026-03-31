@@ -51,12 +51,12 @@ int main() {
 
 ## 详细文档
 
-更多细节已拆分到 `docs/guide`：
+更多细节参考 `docs/guide`：
 
-- `docs/guide/index.md`
-- `docs/guide/getting-started.md`
-- `docs/guide/primitives.md`
-- `docs/guide/listview.md`
-- `docs/guide/layout-and-anchor.md`
-- `docs/guide/components-and-custom-node.md`
-- `docs/guide/runtime-network-fonts.md`
+- [docs/guide/index.md](./docs/guide/index.md)
+- [docs/guide/getting-started.md](./docs/guide/getting-started.md)
+- [docs/guide/primitives.md](./docs/guide/primitives.md)
+- [docs/guide/listview.md](./docs/guide/listview.md)
+- [docs/guide/layout-and-anchor.md](./docs/guide/layout-and-anchor.md)
+- [docs/guide/components-and-custom-node.md](./docs/guide/components-and-custom-node.md)
+- [docs/guide/runtime-network-fonts.md](./docs/guide/runtime-network-fonts.md)
