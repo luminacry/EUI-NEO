@@ -293,6 +293,7 @@ public:
                 if (!incoming.empty()) {
                     insertAtCursor(incoming);
                     textChanged = true;
+                    State.textInput.clear();
                 }
             }
 
