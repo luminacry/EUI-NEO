@@ -65,6 +65,71 @@ constexpr std::array<CitySpec, 27> kCities{{
 constexpr int kDefaultCityIndex = 20;
 constexpr std::size_t kMaxFavoriteCities = 8;
 
+struct CitySwitchTransition {
+    int fromCityIndex = kDefaultCityIndex;
+    bool fromUse24Hour = true;
+    int lastCityIndex = kDefaultCityIndex;
+    bool lastUse24Hour = true;
+    float progress = 1.0f;
+};
+
+float StepCitySwitchTransition(CitySwitchTransition& transition, int cityIndex, bool use24Hour) {
+    const bool changed = cityIndex != transition.lastCityIndex || use24Hour != transition.lastUse24Hour;
+    if (changed) {
+        transition.fromCityIndex = transition.lastCityIndex;
+        transition.fromUse24Hour = transition.lastUse24Hour;
+        transition.lastCityIndex = cityIndex;
+        transition.lastUse24Hour = use24Hour;
+        transition.progress = 0.0f;
+    }
+    if (transition.progress < 1.0f) {
+        transition.progress = std::min(1.0f, transition.progress + EUINEO::State.deltaTime / 0.55f);
+    }
+    return transition.progress * transition.progress * (3.0f - 2.0f * transition.progress);
+}
+
+struct TransitionVisualState {
+    float oldAlpha = 0.0f;
+    float newAlpha = 1.0f;
+    float oldOffsetX = 0.0f;
+    float newOffsetX = 0.0f;
+};
+
+TransitionVisualState BuildTransitionVisualState(float eased) {
+    TransitionVisualState state;
+    const float fadeOut = std::clamp(eased * 1.35f, 0.0f, 1.0f);
+    state.oldAlpha = 1.0f - fadeOut;
+    state.newAlpha = std::clamp(eased, 0.0f, 1.0f);
+    state.oldOffsetX = eased * 18.0f;
+    state.newOffsetX = (1.0f - eased) * -18.0f;
+    return state;
+}
+
+void DrawTransitionLabel(EUINEO::UIContext& ui, const std::string& key, float x, float y, float fontSize,
+                         const EUINEO::Color& color, const std::string& oldText, const std::string& newText,
+                         const TransitionVisualState& visual) {
+    if (visual.oldAlpha > 0.001f) {
+        ui.label(key + ".old")
+            .position(x, y)
+            .translateX(visual.oldOffsetX)
+            .fontSize(fontSize)
+            .color(color)
+            .opacity(visual.oldAlpha)
+            .text(oldText)
+            .build();
+    }
+    if (visual.newAlpha > 0.001f) {
+        ui.label(key + ".new")
+            .position(x, y)
+            .translateX(visual.newOffsetX)
+            .fontSize(fontSize)
+            .color(color)
+            .opacity(visual.newAlpha)
+            .text(newText)
+            .build();
+    }
+}
+
 std::string HitokotoText() {
     EUINEO::DslApiTextOptions options;
     options.fallback = "小手拍拍，大家的笑容闪闪发亮。";
@@ -241,7 +306,17 @@ int main() {
     config.fps = 120;
     return EUINEO::RunDslApp(config, [](EUINEO::UIContext& ui, const EUINEO::RectFrame& screen) {
         static DemoState state;
+        static CitySwitchTransition transition;
+        static bool previousNightMode = state.nightMode;
         state.selectedCityIndex = std::clamp(state.selectedCityIndex, 0, static_cast<int>(kCities.size()) - 1);
+        if (state.nightMode != previousNightMode) {
+            previousNightMode = state.nightMode;
+            ui.requestThemeRefresh(0.18f);
+        }
+        const float eased = StepCitySwitchTransition(transition, state.selectedCityIndex, state.use24Hour);
+        if (eased < 1.0f) {
+            ui.requestVisualRefresh(0.24f);
+        }
         ApplyTheme(state.nightMode);
         if (GLFWwindow* window = EUINEO::ActiveDslWindowState().window) {
             glfwSetWindowOpacity(window, 1.0f);
@@ -252,8 +327,13 @@ int main() {
         const UiPalette palette = BuildPalette(state.nightMode);
         const std::tm heroNow = TimeAtOffset(selectedCity.offsetMinutes);
         const std::string heroTime = FormatTime(heroNow, true, state.use24Hour);
+        const CitySpec& transitionFromCity = kCities[static_cast<std::size_t>(transition.fromCityIndex)];
+        const std::tm transitionFromHeroNow = TimeAtOffset(transitionFromCity.offsetMinutes);
+        const std::string transitionFromHeroTime = FormatTime(transitionFromHeroNow, true, transition.fromUse24Hour);
         const std::string dateText = FormatDate(heroNow);
         const std::string cityTitleLine1 = std::string(selectedCity.nameEn) + " · " + selectedCity.nameZh + ",";
+        const std::string transitionFromCityTitleLine1 = std::string(transitionFromCity.nameEn) + " · " + transitionFromCity.nameZh + ",";
+        const TransitionVisualState transitionVisual = BuildTransitionVisualState(eased);
         ui.requestVisualRefresh(1.05f);
         const float contentW = std::min(1640.0f, std::max(360.0f, screen.width - 48.0f));
         const float contentX = (screen.width - contentW) * 0.5f;
@@ -313,7 +393,7 @@ int main() {
             .build();
         const float heroY = navY + 78.0f;
         const float metaY = heroY + 220.0f;
-        label("clock.hero.time", contentX + 4.0f, heroY + 172.0f, 230.0f, palette.ink, heroTime);
+        DrawTransitionLabel(ui, "clock.hero.time", contentX + 4.0f, heroY + 172.0f, 230.0f, palette.ink, transitionFromHeroTime, heroTime, transitionVisual);
         label("clock.current", contentX, metaY + 26.0f, 22.0f, palette.softText, "Current");
         label("clock.sun", contentX + contentW * 0.33f, metaY + 24.0f, 26.0f, palette.ink, "Sun 07:12 - 17:17 (10h 06m)");
         label("clock.date", contentX + contentW * 0.33f, metaY + 54.0f, 30.0f, palette.ink, dateText);
@@ -329,8 +409,8 @@ int main() {
         const float splitY = metaY + 84.0f;
         const float cityTitleY = splitY + 28.0f;
         ui.panel("clock.split.1").position(contentX, splitY).size(contentW, 1.0f).background(palette.hairline).build();
-        label("clock.city.title.line1", contentX, cityTitleY + 52.0f, 72.0f, palette.ink, cityTitleLine1);
-        label("clock.city.title.line2", contentX, cityTitleY + 122.0f, 72.0f, palette.ink, selectedCity.countryEn);
+        DrawTransitionLabel(ui, "clock.city.title.line1", contentX, cityTitleY + 52.0f, 72.0f, palette.ink, transitionFromCityTitleLine1, cityTitleLine1, transitionVisual);
+        DrawTransitionLabel(ui, "clock.city.title.line2", contentX, cityTitleY + 122.0f, 72.0f, palette.ink, transitionFromCity.countryEn, selectedCity.countryEn, transitionVisual);
         label("clock.city.note", contentX + contentW * 0.33f, cityTitleY + 88.0f, 30.0f, palette.softText, HitokotoText());
         const bool alreadyFavorite = std::find(state.favoriteCityIndices.begin(), state.favoriteCityIndices.end(), state.selectedCityIndex) != state.favoriteCityIndices.end();
         label("clock.city.add", rightX - 250.0f, cityTitleY + 88.0f, 30.0f, palette.ink, alreadyFavorite ? "Already Added" : "Add Another City +");
