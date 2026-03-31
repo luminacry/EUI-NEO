@@ -42,6 +42,7 @@ public:
         ui_.update();
         if (stateVersion_ != versionBeforeUpdate || ui_.consumeRecomposeRequest()) {
             Compose();
+            ui_.update();
         }
     }
 

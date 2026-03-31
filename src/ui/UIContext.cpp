@@ -70,6 +70,20 @@ void FinalizeUIBuild(UIContext& context, UINode& node, const LayoutBuildInfo& in
 void UIContext::begin(const std::string& pageId) {
     pageId_ = pageId;
     ++composeStamp_;
+
+    // Garbage collection for Immediate Mode UI
+    // Remove nodes that haven't been seen in the last 120 frames (approx 1-2 seconds)
+    // This is crucial for Virtual Lists and dynamic data where IDs change frequently
+    for (auto it = nodes_.begin(); it != nodes_.end(); ) {
+        if (it->second && !it->second->composedIn(composeStamp_) && 
+           (it->second->composedIn(0) || composeStamp_ - it->second->composeStamp() > 120)) {
+            Renderer::ReleaseCachedSurface(it->second->key());
+            it = nodes_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
     order_.clear();
     drawOrder_.clear();
     drawOrderStamp_ = 0;

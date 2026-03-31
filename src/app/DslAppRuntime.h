@@ -130,6 +130,11 @@ inline void UseDslLightTheme(const Color& background = Color(1.0f, 1.0f, 1.0f, 1
     SetDslBackground(background);
 }
 
+inline void UseDslDarkTheme(const Color& background = Color(0.0f, 0.0f, 0.0f, 1.0f)) {
+    CurrentTheme = &DarkTheme;
+    SetDslBackground(background);
+}
+
 struct DslApiTextOptions {
     std::string fallback = "";
     float refreshSeconds = 0.0f;

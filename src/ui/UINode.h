@@ -44,6 +44,10 @@ public:
         return composeStamp_ == composeStamp;
     }
 
+    std::uint64_t composeStamp() const {
+        return composeStamp_;
+    }
+
     UIPrimitive& primitive() {
         return primitive_;
     }
