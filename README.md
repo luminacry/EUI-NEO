@@ -1,5 +1,9 @@
 # EUI-NEO
 
+<p align="center">
+  <img src="docs/icon.png" width="120" height="120" />
+</p>
+
 EUI-NEO 是一个基于 OpenGL + GLFW 的声明式 2D GUI 框架，支持组件化 UI、即时模式组合与事件驱动渲染。
 
 <p align="center">
@@ -48,7 +52,6 @@ int main() {
     });
 }
 ```
-
 ## 详细文档
 
 更多细节参考 `docs/guide`：
@@ -60,3 +63,17 @@ int main() {
 - [docs/guide/layout-and-anchor.md](./docs/guide/layout-and-anchor.md)
 - [docs/guide/components-and-custom-node.md](./docs/guide/components-and-custom-node.md)
 - [docs/guide/runtime-network-fonts.md](./docs/guide/runtime-network-fonts.md)
+
+## ⭐ Project Stats
+
+<p align="center">
+  <img src="https://img.shields.io/github/stars/sudoevolve/EUI?style=for-the-badge" />
+  <img src="https://img.shields.io/github/forks/sudoevolve/EUI?style=for-the-badge" />
+  <img src="https://img.shields.io/github/issues/sudoevolve/EUI?style=for-the-badge" />
+</p>
+
+---
+
+## 📈 Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=sudoevolve/EUI&type=date&legend=top-left)](https://www.star-history.com/?repos=sudoevolve%2FEUI&type=date&legend=top-left)
