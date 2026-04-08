@@ -186,8 +186,6 @@
   - 交互时 GPU 峰值较现状下降 >= 10%
 - CPU：
   - 交互期间平均 CPU 占用下降 >= 5%
-- 功能：
-  - Toast 自动隐藏、Dialog 阻断输入、Tab/Table/ContextMenu 行为无回归
 
 ---
 
