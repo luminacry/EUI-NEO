@@ -2,6 +2,7 @@
 
 #include "../EUINEO.h"
 #include "../ui/UIContext.h"
+#include "../ui/UIUpdatePolicy.h"
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <chrono>
@@ -117,6 +118,27 @@ inline bool OpenDslUrl(const std::string& url) {
     const std::string command = "xdg-open \"" + url + "\"";
     return std::system(command.c_str()) == 0;
 #endif
+}
+
+inline UIFrameActivity CaptureDslFrameActivity() {
+    UIFrameActivity activity;
+    activity.pointerMoved = State.pointerMoved;
+    activity.mouseDown = State.mouseDown;
+    activity.mouseClicked = State.mouseClicked;
+    activity.mouseReleased = State.mouseReleased;
+    activity.mouseRightDown = State.mouseRightDown;
+    activity.mouseRightClicked = State.mouseRightClicked;
+    activity.mouseRightReleased = State.mouseRightReleased;
+    activity.scrollDeltaX = State.scrollDeltaX;
+    activity.scrollDeltaY = State.scrollDeltaY;
+    activity.hasTextInput = !State.textInput.empty();
+    for (bool pressed : State.keysPressed) {
+        if (pressed) {
+            activity.hasKeyPress = true;
+            break;
+        }
+    }
+    return activity;
 }
 
 inline void SetDslBackground(const Color& color) {
@@ -715,18 +737,43 @@ inline int RunDslApp(const DslAppConfig& config, const DslComposeFn& compose) {
                 ui.end();
             }
         };
+        auto updateExistingTree = [&]() {
+            ui.update();
+            if (ui.wantsContinuousUpdate()) {
+                ui.requestVisualRefresh(0.18f);
+            }
+            if (ui.consumeRecomposeRequest()) {
+                ui.begin(pageId);
+                compose(ui, RectFrame{0.0f, 0.0f, State.screenW, State.screenH});
+                ui.end();
+            }
+        };
 
         const bool frameRequestedBeforeUpdate =
             State.needsRepaint ||
             State.animationTimeLeft > 0.0f ||
             State.pointerMoved;
+        const bool reuseComposedTree = ShouldReuseComposedTreeForFrame(
+            CaptureDslFrameActivity(),
+            ui.hasComposedTree(),
+            false,
+            ui.wantsContinuousUpdate()
+        );
         if (frameRequestedBeforeUpdate) {
-            composeAndUpdate();
+            if (reuseComposedTree) {
+                updateExistingTree();
+            } else {
+                composeAndUpdate();
+            }
         }
 
         bool shouldDraw = Renderer::ShouldRepaint();
         if (shouldDraw && !frameRequestedBeforeUpdate) {
-            composeAndUpdate();
+            if (reuseComposedTree) {
+                updateExistingTree();
+            } else {
+                composeAndUpdate();
+            }
         }
         if (shouldDraw) {
             State.frameCount++;

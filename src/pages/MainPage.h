@@ -6,6 +6,7 @@
 #include "LayoutPage.h"
 #include "TypographyPage.h"
 #include "../ui/UIContext.h"
+#include "../ui/UIUpdatePolicy.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -29,7 +30,8 @@ public:
 
     void Update() {
         const bool hadPendingTableToast = tableToastTrigger_;
-        if (pageReveal_ < 1.0f) {
+        const bool pageRevealAnimating = pageReveal_ < 1.0f;
+        if (pageRevealAnimating) {
             const float previous = pageReveal_;
             pageReveal_ = Lerp(pageReveal_, 1.0f, State.deltaTime * 11.0f);
             if (std::abs(1.0f - pageReveal_) < 0.01f) {
@@ -41,8 +43,15 @@ public:
         }
 
         const std::uint64_t versionBeforeUpdate = stateVersion_;
-        Compose();
-        ui_.update();
+        if (ShouldReuseComposedTreeForFrame(CaptureFrameActivity(),
+                                            ui_.hasComposedTree(),
+                                            pageRevealAnimating || hasPendingViewSwitch_,
+                                            ui_.wantsContinuousUpdate())) {
+            ui_.update();
+        } else {
+            Compose();
+            ui_.update();
+        }
         if (ui_.wantsContinuousUpdate()) {
             ui_.requestVisualRefresh(0.18f);
         }
@@ -69,6 +78,27 @@ public:
     }
 
 private:
+    static UIFrameActivity CaptureFrameActivity() {
+        UIFrameActivity activity;
+        activity.pointerMoved = State.pointerMoved;
+        activity.mouseDown = State.mouseDown;
+        activity.mouseClicked = State.mouseClicked;
+        activity.mouseReleased = State.mouseReleased;
+        activity.mouseRightDown = State.mouseRightDown;
+        activity.mouseRightClicked = State.mouseRightClicked;
+        activity.mouseRightReleased = State.mouseRightReleased;
+        activity.scrollDeltaX = State.scrollDeltaX;
+        activity.scrollDeltaY = State.scrollDeltaY;
+        activity.hasTextInput = !State.textInput.empty();
+        for (bool pressed : State.keysPressed) {
+            if (pressed) {
+                activity.hasKeyPress = true;
+                break;
+            }
+        }
+        return activity;
+    }
+
     void Compose() {
         const Layout layout = MakeLayout();
 

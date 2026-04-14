@@ -1,7 +1,7 @@
 #include "UIContext.h"
+#include "UIUpdatePolicy.h"
 #include <algorithm>
 #include <cstdint>
-#include <unordered_set>
 
 namespace EUINEO {
 
@@ -102,47 +102,25 @@ void HashCombine(std::uint64_t& seed, std::uint64_t value) {
     seed ^= value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2);
 }
 
-bool HasFrameInputActivity() {
-    if (State.pointerMoved || State.mouseClicked || State.mouseReleased ||
-        State.mouseRightClicked || State.mouseRightReleased ||
-        State.mouseDown || State.mouseRightDown) {
-        return true;
-    }
-    if (State.scrollDeltaX != 0.0f || State.scrollDeltaY != 0.0f) {
-        return true;
-    }
-    if (!State.textInput.empty()) {
-        return true;
-    }
+UIFrameActivity CaptureFrameActivity() {
+    UIFrameActivity activity;
+    activity.pointerMoved = State.pointerMoved;
+    activity.mouseDown = State.mouseDown;
+    activity.mouseClicked = State.mouseClicked;
+    activity.mouseReleased = State.mouseReleased;
+    activity.mouseRightDown = State.mouseRightDown;
+    activity.mouseRightClicked = State.mouseRightClicked;
+    activity.mouseRightReleased = State.mouseRightReleased;
+    activity.scrollDeltaX = State.scrollDeltaX;
+    activity.scrollDeltaY = State.scrollDeltaY;
+    activity.hasTextInput = !State.textInput.empty();
     for (bool pressed : State.keysPressed) {
         if (pressed) {
-            return true;
+            activity.hasKeyPress = true;
+            break;
         }
     }
-    return false;
-}
-
-bool IsPointerMoveOnlyActivity() {
-    if (!State.pointerMoved) {
-        return false;
-    }
-    if (State.mouseClicked || State.mouseReleased ||
-        State.mouseRightClicked || State.mouseRightReleased ||
-        State.mouseDown || State.mouseRightDown) {
-        return false;
-    }
-    if (State.scrollDeltaX != 0.0f || State.scrollDeltaY != 0.0f) {
-        return false;
-    }
-    if (!State.textInput.empty()) {
-        return false;
-    }
-    for (bool pressed : State.keysPressed) {
-        if (pressed) {
-            return false;
-        }
-    }
-    return true;
+    return activity;
 }
 
 } // namespace
@@ -559,9 +537,10 @@ void UIContext::update() {
         }
     }
 
-    const bool hasInputActivity = HasFrameInputActivity();
-    const bool pointerMoveOnly = IsPointerMoveOnlyActivity();
-    std::unordered_set<UINode*> pointerHotNodeSet;
+    const UIFrameActivity frameActivity = CaptureFrameActivity();
+    const bool hasInputActivity = HasFrameInputActivity(frameActivity);
+    const bool pointerMoveOnly = IsPointerMoveOnlyActivity(frameActivity);
+    std::vector<UINode*> pointerHotNodeSet;
     if (pointerMoveOnly) {
         std::vector<UINode*> currentPointerHotNodes;
         currentPointerHotNodes.reserve(2);
@@ -586,11 +565,12 @@ void UIContext::update() {
                 break;
             }
         }
-        for (UINode* node : currentPointerHotNodes) {
-            pointerHotNodeSet.insert(node);
-        }
+        pointerHotNodeSet = currentPointerHotNodes;
+        pointerHotNodeSet.reserve(currentPointerHotNodes.size() + pointerHotNodes_.size());
         for (UINode* node : pointerHotNodes_) {
-            pointerHotNodeSet.insert(node);
+            if (std::find(pointerHotNodeSet.begin(), pointerHotNodeSet.end(), node) == pointerHotNodeSet.end()) {
+                pointerHotNodeSet.push_back(node);
+            }
         }
         pointerHotNodes_ = std::move(currentPointerHotNodes);
     } else {
@@ -602,7 +582,7 @@ void UIContext::update() {
         applyRuntimeContext(node);
         const bool isVisible = node->visible();
         const bool pointerHot = pointerMoveOnly &&
-            pointerHotNodeSet.find(node) != pointerHotNodeSet.end();
+            std::find(pointerHotNodeSet.begin(), pointerHotNodeSet.end(), node) != pointerHotNodeSet.end();
         const bool shouldRunUpdate = pointerMoveOnly
             ? (pointerHot || node->wantsContinuousUpdate() || node->cacheDirty())
             : (hasInputActivity || node->wantsContinuousUpdate() || node->cacheDirty());
@@ -662,7 +642,13 @@ void UIContext::draw() {
         if (!node->visible()) {
             continue;
         }
-        if (node->primitive().blur <= 0.0f && node->usesCachedSurface()) {
+        const bool wantsContinuousUpdate = node->wantsContinuousUpdate();
+        const bool useSurfaceCache = ShouldUseNodeSurfaceCache(
+            node->usesCachedSurface(),
+            node->primitive().blur > 0.0f,
+            wantsContinuousUpdate
+        );
+        if (useSurfaceCache) {
             const RectFrame bounds = node->paintBounds();
             if (bounds.width > 0.0f && bounds.height > 0.0f) {
                 Renderer::DrawCachedSurface(node->key(), bounds, node->cacheDirty(), [node]() {
@@ -674,7 +660,11 @@ void UIContext::draw() {
             node->clearCacheDirty();
         } else {
             node->draw();
-            node->clearCacheDirty();
+            if (!(node->primitive().blur <= 0.0f &&
+                  node->usesCachedSurface() &&
+                  wantsContinuousUpdate)) {
+                node->clearCacheDirty();
+            }
         }
     }
 }

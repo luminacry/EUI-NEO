@@ -96,6 +96,9 @@ public:
     void render();
     void draw();
     bool wantsContinuousUpdate() const;
+    bool hasComposedTree() const {
+        return !order_.empty();
+    }
     void markAllNodesDirty();
     void requestVisualRefresh(float duration = 0.0f);
     void requestThemeRefresh(float duration = 0.18f);
