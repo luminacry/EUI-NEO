@@ -27,6 +27,7 @@
 #include "components/tooltip.h"
 #include "components/contextmenu.h"
 #include "components/carousel.h"
+#include "components/card_slider.h"
 #include "components/linechart.h"
 #include "components/barchart.h"
 #include "components/piechart.h"
